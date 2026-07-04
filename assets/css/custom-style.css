@@ -1506,17 +1506,8 @@ html.dark .header .toggle-sidebar-left {
 		display: none;
 	}
 
-	.header-search-xs {
-		clear: both;
-		width: 100%;
-		padding: 8px 10px;
-		background-color: #F6F6F6;
-		border-bottom: 1px solid #E9E9E6;
-		box-sizing: border-box;
-	}
-
-	.header-search-xs .input-search {
-		width: 100%;
+	.header-search-toggle .header-menubox {
+		width: 260px;
 	}
 }
 /* Header Dark */
