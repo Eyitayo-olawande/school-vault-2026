@@ -455,8 +455,22 @@ $config['csrf_expire'] = 7200;
 $config['csrf_regenerate'] = FALSE;
 $config['csrf_exclude_uris'] = array('paystack/webhook');
 
-if($config['csrf_protection'] == TRUE && isset($_SERVER['REQUEST_URI']) && (strpos($_SERVER['REQUEST_URI'],'feespayment/') !== FALSE || strpos($_SERVER['REQUEST_URI'],'admissionpayment/') !== FALSE || strpos($_SERVER['REQUEST_URI'],'onlineexam_payment/') !== FALSE || strpos($_SERVER['REQUEST_URI'],'subscription/') !== FALSE || strpos($_SERVER['REQUEST_URI'], 'saas_payment/') !== FALSE)){
-    $config['csrf_protection'] = FALSE;
+// Only the payment-gateway callback/return actions can legitimately arrive
+// without a CSRF token, since the request comes from the gateway (browser
+// redirect or server-to-server IPN), not a form submitted on this site.
+// Exempting the *whole* feespayment/admissionpayment/etc controller (as
+// before) also disabled CSRF on user-initiated actions like "checkout",
+// which do need protection - so this only matches the known callback
+// action names, not every action under those controllers.
+if ($config['csrf_protection'] == TRUE && isset($_SERVER['REQUEST_URI'])) {
+    $payment_callback_pattern = '#/(feespayment|admissionpayment|onlineexam_payment|subscription|saas_payment)/'
+        . '(getsuccesspayment|stripe_success|verify_paystack_payment|payumoney_success|razorpay_verify|'
+        . 'sslcommerz_success|jazzcash_success|midtrans_success|verify_flutterwave_payment|paytm_success|'
+        . 'toyyibpay_success|toyyibpay_callbackurl|payhere_notify|payhere_return|nepalste_notify)(/|$|\?)#i';
+    $request_path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+    if ($request_path !== null && preg_match($payment_callback_pattern, $request_path)) {
+        $config['csrf_protection'] = FALSE;
+    }
 }
 
 /*
