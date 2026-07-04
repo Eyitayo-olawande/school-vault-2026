@@ -328,10 +328,13 @@ function set_alert($type, $message)
     $CI->session->set_flashdata('alert-message-' . $type, $message);
 }
 
-// generate md5 hash
+// generate a unique reference/token (used for payment refs, password-reset
+// keys, file names, etc.) - same 32-hex-char shape as the old md5() output,
+// but sourced from a CSPRNG rather than rand()/microtime()/uniqid(), which
+// are predictable and unsuitable for anything security-sensitive.
 function app_generate_hash()
 {
-    return md5(rand() . microtime() . time() . uniqid());
+    return bin2hex(random_bytes(16));
 }
 
 // generate encryption key
