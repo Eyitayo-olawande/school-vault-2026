@@ -59,7 +59,19 @@
 	ini_set('post_max_size', '128M');
 	ini_set('upload_max_filesize', '128M');
  
-	define('ENVIRONMENT', isset($_SERVER['CI_ENV']) ? $_SERVER['CI_ENV'] : 'development');
+	// Default to 'production' (safe: no verbose errors/DB debug output) unless
+	// CI_ENV explicitly says otherwise, or this is genuinely running on the
+	// local machine (SERVER_ADDR is set by the web server from the actual
+	// socket, not from a client-supplied header, so it can't be spoofed by a
+	// Host header trick against a real production deployment).
+	$is_local_server = isset($_SERVER['SERVER_ADDR']) && in_array($_SERVER['SERVER_ADDR'], array('127.0.0.1', '::1'), true);
+	if (isset($_SERVER['CI_ENV'])) {
+		define('ENVIRONMENT', $_SERVER['CI_ENV']);
+	} elseif ($is_local_server) {
+		define('ENVIRONMENT', 'development');
+	} else {
+		define('ENVIRONMENT', 'production');
+	}
 
 /*
  *---------------------------------------------------------------
