@@ -167,7 +167,7 @@ class Fees_model extends MY_Model
         } else {
             // $data['type_id'] is client-supplied - verify it actually
             // belongs to the caller's branch before updating it.
-            $this->app_lib->check_branch_restrictions('fees_type', $data['type_id']);
+            $this->app_lib->check_branch_restrictions('fees_type', $data['type_id'], true);
             $this->db->where('id', $data['type_id']);
             $this->db->update('fees_type', $arrayData);
         }

@@ -216,7 +216,7 @@ class Fees extends Admin_Controller
                     $groupID = $this->input->post('group_id');
                     // group_id is client-supplied - verify it belongs to the
                     // caller's branch before updating/deleting its contents.
-                    $this->app_lib->check_branch_restrictions('fee_groups', $groupID);
+                    $this->app_lib->check_branch_restrictions('fee_groups', $groupID, true);
                     $arrayGroup = array(
                         'name' => $this->input->post('name'),
                         'description' => $this->input->post('description'),
@@ -352,7 +352,7 @@ class Fees extends Admin_Controller
                 );
                 // $id is a client-supplied URL segment - verify it belongs
                 // to the caller's branch before updating it.
-                $this->app_lib->check_branch_restrictions('fee_fine', $id);
+                $this->app_lib->check_branch_restrictions('fee_fine', $id, true);
                 $this->db->where('id', $id);
                 $this->db->update('fee_fine', $insertData);
                 set_alert('success', translate('information_has_been_updated_successfully'));
