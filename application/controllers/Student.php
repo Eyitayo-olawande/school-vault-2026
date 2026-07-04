@@ -576,6 +576,11 @@ class Student extends Admin_Controller
             $this->form_validation->set_rules('parent_id', translate('guardian'), 'required');
             if ($this->form_validation->run() == true) {
                 $post = $this->input->post();
+                // Never trust the client-supplied hidden student_id field for
+                // which record gets updated - always target the id from the
+                // URL, which getSingleStudent() above already branch-scoped
+                // and 404'd on if it doesn't belong to the caller's school.
+                $post['student_id'] = $getStudent['id'];
                 //save all student information in the database file
                 $studentID = $this->student_model->save($post);
                 //save student enroll information in the database file
