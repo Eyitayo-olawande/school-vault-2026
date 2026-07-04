@@ -108,11 +108,15 @@ class App_lib
         }
         if (!is_superadmin_loggedin()) {
             $query = $this->CI->db->select('id,branch_id')->from($table)->where('id', $id)->limit(1)->get();
-            if ($query->num_rows() != 0) {
-                $branch_id = $query->row()->branch_id;
-                if ($branch_id != $this->CI->session->userdata('loggedin_branch')) {
-                    access_denied();
-                }
+            // A non-existent id must be denied too, not silently passed
+            // through - otherwise a caller can proceed to insert/update
+            // child rows keyed to an id that was never actually verified.
+            if ($query->num_rows() == 0) {
+                access_denied();
+            }
+            $branch_id = $query->row()->branch_id;
+            if ($branch_id != $this->CI->session->userdata('loggedin_branch')) {
+                access_denied();
             }
         }
     }

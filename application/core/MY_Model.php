@@ -15,7 +15,8 @@ class MY_Model extends CI_Model {
 		$old_user_photo = $this->input->post('old_user_photo');
 		if (isset($_FILES["$fields"]) && !empty($_FILES["$fields"]['name'])) {
 			$config['upload_path'] = './uploads/images/' . $role . '/';
-			$config['allowed_types'] = '*';
+			$config['allowed_types'] = 'gif|jpg|jpeg|png';
+			$config['max_size'] = 5120;
 			$config['overwrite'] = FALSE;
 			$config['encrypt_name'] = TRUE;
 			$this->upload->initialize($config);
@@ -83,7 +84,8 @@ class MY_Model extends CI_Model {
     {
         if (file_exists($_FILES[$media_name]['tmp_name']) && !$_FILES[$media_name]['error'] == UPLOAD_ERR_NO_FILE) {
             $config['upload_path'] = $upload_path;
-            $config['allowed_types'] = '*';
+            $config['allowed_types'] = 'gif|jpg|jpeg|png';
+            $config['max_size'] = 5120;
             if ($enc == true) {
                 $config['encrypt_name'] = true;
             } else {

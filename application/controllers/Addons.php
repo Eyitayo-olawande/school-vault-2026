@@ -367,6 +367,19 @@ class Addons extends MY_Controller
 
         $zip = new ZipArchive;
         if ($zip->open($zipFile) === true) {
+            // Defense in depth against zip-slip: reject any entry that
+            // resolves outside the intended extraction directory before
+            // trusting ZipArchive::extractTo()'s own path handling - this
+            // extracts into the webroot itself, so it's the highest-value
+            // target for a malicious update package.
+            for ($i = 0; $i < $zip->numFiles; $i++) {
+                $entryName = $zip->getNameIndex($i);
+                if ($entryName === false || strpos($entryName, '..') !== false || strpos($entryName, "\0") !== false || $entryName[0] === '/') {
+                    $zip->close();
+                    echo json_encode(['status' => 0, 'message' => 'Failed to extract downloaded zip file']);
+                    exit();
+                }
+            }
             if (!$zip->extractTo('./')) {
                 echo json_encode(['status' => 0, 'message' => 'Failed to extract downloaded zip file']);
                 exit();
