@@ -60,11 +60,16 @@
 	ini_set('upload_max_filesize', '128M');
  
 	// Default to 'production' (safe: no verbose errors/DB debug output) unless
-	// CI_ENV explicitly says otherwise, or this is genuinely running on the
-	// local machine (SERVER_ADDR is set by the web server from the actual
-	// socket, not from a client-supplied header, so it can't be spoofed by a
-	// Host header trick against a real production deployment).
-	$is_local_server = isset($_SERVER['SERVER_ADDR']) && in_array($_SERVER['SERVER_ADDR'], array('127.0.0.1', '::1'), true);
+	// CI_ENV explicitly says otherwise, or this is genuinely running on a
+	// local/private machine (SERVER_ADDR is set by the web server from the
+	// actual socket, not from a client-supplied header, so it can't be
+	// spoofed by a Host header trick against a real production deployment).
+	// Checked against the loopback/private/reserved ranges (not just an
+	// exact 127.0.0.1/::1 match) so a LAN IP, custom local vhost, or a
+	// Docker/VM setup also counts as local, matching how a real production
+	// server's public IP never falls in these ranges.
+	$server_addr = isset($_SERVER['SERVER_ADDR']) ? $_SERVER['SERVER_ADDR'] : '';
+	$is_local_server = $server_addr !== '' && filter_var($server_addr, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false;
 	if (isset($_SERVER['CI_ENV'])) {
 		define('ENVIRONMENT', $_SERVER['CI_ENV']);
 	} elseif ($is_local_server) {
