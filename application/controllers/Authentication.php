@@ -86,6 +86,9 @@ class Authentication extends Authentication_Controller
                             'set_session_id' => $getConfig->session_id,
                             'loggedin' => true,
                         );
+                        // Rotate the session id on privilege change (anonymous -> authenticated)
+                        // and discard the old session's data, to prevent session fixation.
+                        $this->session->sess_regenerate(true);
                         $this->session->set_userdata($sessionData);
                         $this->db->update('login_credential', array('last_login' => date('Y-m-d H:i:s')), array('id' => $login_credential->id));
                         // is logged in
