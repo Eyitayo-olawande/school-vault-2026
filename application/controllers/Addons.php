@@ -341,8 +341,8 @@ class Addons extends MY_Controller
         curl_setopt($curl_handle, CURLOPT_AUTOREFERER, true);
         curl_setopt($curl_handle, CURLOPT_BINARYTRANSFER, true);
         curl_setopt($curl_handle, CURLOPT_TIMEOUT, 50);
-        curl_setopt($curl_handle, CURLOPT_SSL_VERIFYHOST, 0);
-        curl_setopt($curl_handle, CURLOPT_SSL_VERIFYPEER, 0);
+        curl_setopt($curl_handle, CURLOPT_SSL_VERIFYHOST, 2);
+        curl_setopt($curl_handle, CURLOPT_SSL_VERIFYPEER, true);
         curl_setopt($curl_handle, CURLOPT_FILE, $zipResource);
         curl_setopt($curl_handle, CURLOPT_POSTFIELDS, array(
             'purchase_code' => $this->purchase_code,
