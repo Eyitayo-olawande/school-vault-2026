@@ -109,7 +109,9 @@ class Addons extends MY_Controller
 
             $purchaseCode = $this->input->post('purchase_code');
             $uploadPath = "uploads/addons/";
-            $zipped_fileName = $_FILES['zip_file']['name'];
+            // Use a random name for the uploaded zip itself, never the
+            // attacker-supplied original filename, to rule out traversal here.
+            $zipped_fileName = generate_encryption_key() . '.zip';
             move_uploaded_file($_FILES['zip_file']['tmp_name'], $uploadPath . $zipped_fileName);
             $random_dir = generate_encryption_key();
             $this->extractPath = FCPATH . "{$uploadPath}{$random_dir}";
@@ -118,6 +120,17 @@ class Addons extends MY_Controller
             $zip = new ZipArchive;
             $res = $zip->open($uploadPath . $zipped_fileName);
             if ($res === true) {
+                // Defense in depth against zip-slip: reject any entry that
+                // resolves outside the intended extraction directory before
+                // trusting ZipArchive::extractTo()'s own path handling.
+                for ($i = 0; $i < $zip->numFiles; $i++) {
+                    $entryName = $zip->getNameIndex($i);
+                    if ($entryName === false || strpos($entryName, '..') !== false || strpos($entryName, "\0") !== false || $entryName[0] === '/') {
+                        $zip->close();
+                        unlink($uploadPath . $zipped_fileName);
+                        return ['status' => 'fail', 'message' => translate('this_file_type_is_not_allowed')];
+                    }
+                }
                 $fileName = trim($zip->getNameIndex(0), '/');
                 $res = $zip->extractTo($uploadPath . $random_dir);
                 $zip->close();
