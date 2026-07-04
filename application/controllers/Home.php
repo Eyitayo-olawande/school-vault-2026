@@ -288,7 +288,8 @@ class Home extends Frontend_Controller
             $config['upload_path'] = './uploads/' . $role . '/';
             $config['overwrite'] = FALSE;
             $config['encrypt_name'] = TRUE;
-            $config['allowed_types'] = '*';
+            $config['allowed_types'] = 'gif|jpg|jpeg|png|pdf|doc|docx';
+            $config['max_size'] = 5120;
             $this->upload->initialize($config);
             if ($this->upload->do_upload("$fields")) {
                 $return_photo = $this->upload->data('file_name');

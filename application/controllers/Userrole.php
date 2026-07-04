@@ -86,7 +86,7 @@ class Userrole extends User_Controller
                 // upload attachment file
                 if (isset($_FILES["attachment_file"]) && !empty($_FILES['attachment_file']['name'])) {
                     $config['upload_path'] = './uploads/attachments/leave/';
-                    $config['allowed_types'] = "*";
+                    $config['allowed_types'] = 'gif|jpg|jpeg|png|pdf|doc|docx|xls|xlsx';
                     $config['max_size'] = '2024';
                     $config['encrypt_name'] = true;
                     $this->upload->initialize($config);
@@ -514,7 +514,8 @@ class Userrole extends User_Controller
                     $config = array();
                     $config['upload_path'] = 'uploads/attachments/homework_submit/';
                     $config['encrypt_name'] = true;
-                    $config['allowed_types'] = '*';
+                    $config['allowed_types'] = 'gif|jpg|jpeg|png|pdf|doc|docx|xls|xlsx|zip';
+                    $config['max_size'] = 5120;
                     $this->upload->initialize($config);
                     if ($this->upload->do_upload("attachment_file")) {
                         $encrypt_name = $this->input->post('old_file');
@@ -843,7 +844,8 @@ class Userrole extends User_Controller
                 $config = array();
                 $config['upload_path'] = 'uploads/attachments/offline_payments/';
                 $config['encrypt_name'] = true;
-                $config['allowed_types'] = '*';
+                $config['allowed_types'] = 'gif|jpg|jpeg|png|pdf';
+                $config['max_size'] = 5120;
                 $this->upload->initialize($config);
                 if ($this->upload->do_upload("proof_of_payment")) {
                     $orig_name = $this->upload->data('orig_name');

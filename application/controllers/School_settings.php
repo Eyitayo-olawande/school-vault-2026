@@ -67,27 +67,40 @@ class School_settings extends Admin_Controller
                 $post['brance_id'] = $branchID;
                 $this->school_model->branchUpdate($post);
                 $id = $branchID;
+                $allowed_logo_types = array('jpg', 'jpeg', 'png', 'gif');
                 if (isset($_FILES["logo_file"]) && !empty($_FILES['logo_file']['name'])) {
                     $fileInfo = pathinfo($_FILES["logo_file"]["name"]);
-                    $img_name = $id . '.' . $fileInfo['extension'];
-                    move_uploaded_file($_FILES["logo_file"]["tmp_name"], "uploads/app_image/logo-" . $img_name);
+                    $ext = strtolower($fileInfo['extension']);
+                    if (in_array($ext, $allowed_logo_types)) {
+                        $img_name = $id . '.' . $ext;
+                        move_uploaded_file($_FILES["logo_file"]["tmp_name"], "uploads/app_image/logo-" . $img_name);
+                    }
                 }
                 if (isset($_FILES["text_logo"]) && !empty($_FILES['text_logo']['name'])) {
                     $fileInfo = pathinfo($_FILES["text_logo"]["name"]);
-                    $img_name = $id . '.' . $fileInfo['extension'];
-                    move_uploaded_file($_FILES["text_logo"]["tmp_name"], "uploads/app_image/logo-small-" . $img_name);
+                    $ext = strtolower($fileInfo['extension']);
+                    if (in_array($ext, $allowed_logo_types)) {
+                        $img_name = $id . '.' . $ext;
+                        move_uploaded_file($_FILES["text_logo"]["tmp_name"], "uploads/app_image/logo-small-" . $img_name);
+                    }
                 }
 
                 if (isset($_FILES["print_file"]) && !empty($_FILES['print_file']['name'])) {
                     $fileInfo = pathinfo($_FILES["print_file"]["name"]);
-                    $img_name = $id . '.' . $fileInfo['extension'];
-                    move_uploaded_file($_FILES["print_file"]["tmp_name"], "uploads/app_image/printing-logo-" . $img_name);
+                    $ext = strtolower($fileInfo['extension']);
+                    if (in_array($ext, $allowed_logo_types)) {
+                        $img_name = $id . '.' . $ext;
+                        move_uploaded_file($_FILES["print_file"]["tmp_name"], "uploads/app_image/printing-logo-" . $img_name);
+                    }
                 }
 
                 if (isset($_FILES["report_card"]) && !empty($_FILES['report_card']['name'])) {
                     $fileInfo = pathinfo($_FILES["report_card"]["name"]);
-                    $img_name = $id . '.' . $fileInfo['extension'];
-                    move_uploaded_file($_FILES["report_card"]["tmp_name"], "uploads/app_image/report-card-logo-" . $img_name);
+                    $ext = strtolower($fileInfo['extension']);
+                    if (in_array($ext, $allowed_logo_types)) {
+                        $img_name = $id . '.' . $ext;
+                        move_uploaded_file($_FILES["report_card"]["tmp_name"], "uploads/app_image/report-card-logo-" . $img_name);
+                    }
                 }
 
                 $message = translate('the_configuration_has_been_updated');

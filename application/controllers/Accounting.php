@@ -277,11 +277,14 @@ class Accounting extends Admin_Controller
                 //save data into table
                 $insert_id = $this->accounting_model->saveVoucher($post);
                 if (isset($_FILES["attachment_file"]) && !empty($_FILES['attachment_file']['name'])) {
-                    $ext = pathinfo($_FILES["attachment_file"]["name"], PATHINFO_EXTENSION);
-                    $file_name = $insert_id . '.' . $ext;
-                    move_uploaded_file($_FILES["attachment_file"]["tmp_name"], "./uploads/attachments/voucher/" . $file_name);
-                    $this->db->where('id', $insert_id);
-                    $this->db->update('transactions', array('attachments' => $file_name));
+                    $ext = strtolower(pathinfo($_FILES["attachment_file"]["name"], PATHINFO_EXTENSION));
+                    $allowed_voucher_types = array('jpg', 'jpeg', 'png', 'gif', 'pdf');
+                    if (in_array($ext, $allowed_voucher_types)) {
+                        $file_name = $insert_id . '.' . $ext;
+                        move_uploaded_file($_FILES["attachment_file"]["tmp_name"], "./uploads/attachments/voucher/" . $file_name);
+                        $this->db->where('id', $insert_id);
+                        $this->db->update('transactions', array('attachments' => $file_name));
+                    }
                 }
                 set_alert('success', translate('information_has_been_saved_successfully'));
                 $array  = array('status' => 'success',  'error' => '');

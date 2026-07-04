@@ -123,7 +123,7 @@ class Leave extends Admin_Controller
                 // upload attachment file
                 if (isset($_FILES["attachment_file"]) && !empty($_FILES['attachment_file']['name'])) {
                     $config['upload_path']      = './uploads/attachments/leave/';
-                    $config['allowed_types']    = "*";
+                    $config['allowed_types']      = 'gif|jpg|jpeg|png|pdf|doc|docx|xls|xlsx';
                     $config['max_size']         = '2024';
                     $config['encrypt_name']     = true;
                     $this->upload->initialize($config);
@@ -276,7 +276,7 @@ class Leave extends Admin_Controller
                 // upload attachment file
                 if (isset($_FILES["attachment_file"]) && !empty($_FILES['attachment_file']['name'])) {
                     $config['upload_path']      = './uploads/attachments/leave/';
-                    $config['allowed_types']    = "*";
+                    $config['allowed_types']      = 'gif|jpg|jpeg|png|pdf|doc|docx|xls|xlsx';
                     $config['max_size']         = '2024';
                     $config['encrypt_name']     = true;
                     $this->upload->initialize($config);
