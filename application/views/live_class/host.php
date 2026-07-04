@@ -96,11 +96,11 @@
             ZoomMtg.preLoadWasm();
             ZoomMtg.prepareJssdk();
             var meetConfig = {
-                sdkKey: "<?=$zoom_api_key?>",
-                sdkSecret: "<?=$zoom_api_secret?>",
-                meetingNumber: "<?=$meetingID?>",
-                userName: "<?=$getStaff['name']?>",
-                passWord: "<?=$liveClass['meeting_password']?>",
+                sdkKey: <?=json_encode($zoom_api_key)?>,
+                sdkSecret: <?=json_encode($zoom_api_secret)?>,
+                meetingNumber: <?=json_encode($meetingID)?>,
+                userName: <?=json_encode($getStaff['name'])?>,
+                passWord: <?=json_encode($liveClass['meeting_password'])?>,
                 leaveUrl: "<?php echo base_url('live_class');?>",
                 role: parseInt(1, 10)
             };
