@@ -256,4 +256,18 @@ foreach($languages as $lang) :
 			</div>
 		</div>
 	</div>
+
+	<!-- search bar, mobile only - the desktop one above is hidden on small screens -->
+	<?php if (get_permission('student', 'is_view')): ?>
+		<div class="visible-xs header-search-xs">
+			<?php echo form_open('student/search', array('class' => 'search nav-form'));?>
+				<div class="input-group input-search">
+					<input type="text" class="form-control" name="search_text" placeholder="<?php echo translate('search');?>">
+					<span class="input-group-btn">
+						<button class="btn btn-default" type="submit"><i class="fa fa-search"></i></button>
+					</span>
+				</div>
+			</form>
+		</div>
+	<?php endif;?>
 </header>

@@ -325,15 +325,23 @@ class Student_model extends MY_Model
         if (!is_superadmin_loggedin()) {
             $this->db->where('e.branch_id', get_loggedin_branch_id());
         }
-        $this->db->group_start();
-        $this->db->like('s.first_name', $search_text);
-        $this->db->or_like('s.last_name', $search_text);
-        $this->db->or_like('s.register_no', $search_text);
-        $this->db->or_like('s.email', $search_text);
-        $this->db->or_like('e.roll', $search_text);
-        $this->db->or_like('s.blood_group', $search_text);
-        $this->db->or_like('sp.name', $search_text);
-        $this->db->group_end();
+        // Support multi-word search (e.g. "Haneef Edu" matching first_name +
+        // last_name together), the same way the student-list table's search
+        // box works: split on whitespace and require every word to match at
+        // least one of the fields, rather than the whole phrase matching a
+        // single field.
+        $keywords = preg_split('/\s+/', trim($search_text), -1, PREG_SPLIT_NO_EMPTY);
+        foreach ($keywords as $keyword) {
+            $this->db->group_start();
+            $this->db->like('s.first_name', $keyword);
+            $this->db->or_like('s.last_name', $keyword);
+            $this->db->or_like('s.register_no', $keyword);
+            $this->db->or_like('s.email', $keyword);
+            $this->db->or_like('e.roll', $keyword);
+            $this->db->or_like('s.blood_group', $keyword);
+            $this->db->or_like('sp.name', $keyword);
+            $this->db->group_end();
+        }
         $this->db->order_by('s.id', 'desc');
         return $this->db->get();
     }
