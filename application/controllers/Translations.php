@@ -62,7 +62,19 @@ class Translations extends Admin_Controller
         if (!get_permission('translations', 'is_edit')) {
             access_denied();
         }
-        $language = html_escape($this->input->get('lang'));
+        $language = $this->input->get('lang');
+        // $language is used as a raw column/identifier below, so it must be
+        // validated against the actual set of language columns rather than
+        // just HTML-escaped (html_escape() doesn't protect backtick-quoted
+        // identifiers from SQL injection).
+        if (!empty($language) && !preg_match('/^[a-zA-Z0-9_]+$/', $language)) {
+            show_404();
+        }
+        $valid_lang_fields = $this->db->select('lang_field')->get('language_list')->result_array();
+        $valid_lang_fields = array_column($valid_lang_fields, 'lang_field');
+        if (!empty($language) && !in_array($language, $valid_lang_fields, true)) {
+            show_404();
+        }
         if (!empty($language)) {
             $query_language = $this->db->query("SELECT `id`, `word`, `$language` FROM `languages`");
             if ($this->input->post('submit') == 'update') {
