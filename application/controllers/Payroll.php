@@ -281,12 +281,20 @@ class Payroll extends Admin_Controller
             }
             $stafflist = $this->input->post('stafflist');
             if (count($stafflist)) {
+                // $value['id'] is client-supplied - verify it belongs to the
+                // caller's branch before reassigning its salary template.
+                // Batched into one query instead of one per staff member.
+                $staffBranchMap = array();
+                if (!is_superadmin_loggedin()) {
+                    $staffIds = array_column($stafflist, 'id');
+                    $rows = $this->db->select('id, branch_id')->where_in('id', $staffIds)->get('staff')->result();
+                    foreach ($rows as $row) {
+                        $staffBranchMap[$row->id] = $row->branch_id;
+                    }
+                }
                 foreach ($stafflist as $key => $value) {
-                    // $value['id'] is client-supplied - verify it belongs to
-                    // the caller's branch before reassigning its salary template.
                     if (!is_superadmin_loggedin()) {
-                        $staffBranch = $this->db->select('branch_id')->where('id', $value['id'])->get('staff')->row();
-                        if (empty($staffBranch) || $staffBranch->branch_id != $branchID) {
+                        if (!isset($staffBranchMap[$value['id']]) || $staffBranchMap[$value['id']] != $branchID) {
                             continue;
                         }
                     }
