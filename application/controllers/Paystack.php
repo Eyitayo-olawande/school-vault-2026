@@ -21,29 +21,21 @@ class Paystack extends CI_Controller {
     public function webhook() {
         // Retrieve the request's body and parse it as JSON
         $input = @file_get_contents("php://input");
+
+        // Verify the Paystack webhook signature (HMAC-SHA512 over the raw body,
+        // keyed with the branch's secret key) before trusting the payload.
+        // See https://paystack.com/docs/payments/webhooks/#verifying-events
+        $signature = isset($_SERVER['HTTP_X_PAYSTACK_SIGNATURE']) ? $_SERVER['HTTP_X_PAYSTACK_SIGNATURE'] : '';
+        if ($signature === '' || !$this->verify_paystack_signature($input, $signature)) {
+            log_message('error', 'Paystack webhook: missing or invalid X-Paystack-Signature, request rejected');
+            http_response_code(401);
+            exit();
+        }
+
         $event = json_decode($input);
 
         //echo json_decode($event);
         log_message('info', $input);
-
-        // // Verify the webhook signature
-        // $stripeSignature = $_SERVER['HTTP_STRIPE_SIGNATURE'];
-        // $endpoint_secret = 'your_webhook_secret'; // You can find this in the Stripe Dashboard
-
-        // try {
-        //     \Stripe\Stripe::setApiKey('your_stripe_secret_key');
-        //     $event = \Stripe\Webhook::constructEvent(
-        //         $input, $stripeSignature, $endpoint_secret
-        //     );
-        // } catch(\UnexpectedValueException $e) {
-        //     // Invalid payload
-        //     http_response_code(400);
-        //     exit();
-        // } catch(\Stripe\Exception\SignatureVerificationException $e) {
-        //     // Invalid signature
-        //     http_response_code(400);
-        //     exit();
-        // }
 
         // Handle the event
         switch ($event->event) {
@@ -173,6 +165,25 @@ class Paystack extends CI_Controller {
         $response = ['status' => 'success', 'message' => 'Payment processed successfully'];
         http_response_code(200); // Respond with a 200 status code to acknowledge receipt of the event
         echo $input;
+    }
+
+    private function verify_paystack_signature($payload, $signature) {
+        // Multi-tenant: each branch has its own Paystack secret key, and the
+        // webhook payload doesn't identify the branch up front, so check the
+        // signature against every branch with Paystack enabled.
+        $configs = $this->db->select('paystack_secret_key')
+            ->where('paystack_status', 1)
+            ->where('paystack_secret_key !=', '')
+            ->get('payment_config')
+            ->result_array();
+
+        foreach ($configs as $config) {
+            $expected = hash_hmac('sha512', $payload, $config['paystack_secret_key']);
+            if (hash_equals($expected, $signature)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public function create($paymentData) {
