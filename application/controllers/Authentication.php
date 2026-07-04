@@ -47,10 +47,18 @@ class Authentication extends Authentication_Controller
                 // Brute-force throttle: lock out an email+IP combination for
                 // 15 minutes after 5 failed attempts. File-backed, no schema
                 // change needed, so this is safe to ship without a migration.
+                // A second, IP-only counter with a higher threshold catches
+                // credential stuffing (many different emails, one IP), which
+                // the email+IP counter alone can't - each distinct email
+                // gets its own untouched budget under that scheme.
                 $this->load->driver('cache', array('adapter' => 'file'));
                 $throttle_key = 'login_throttle_' . md5(strtolower($email) . '_' . $this->input->ip_address());
+                $ip_throttle_key = 'login_throttle_ip_' . md5($this->input->ip_address());
                 $throttle = $this->cache->get($throttle_key);
-                if (is_array($throttle) && !empty($throttle['locked_until']) && $throttle['locked_until'] > time()) {
+                $ip_throttle = $this->cache->get($ip_throttle_key);
+                $locked = (is_array($throttle) && !empty($throttle['locked_until']) && $throttle['locked_until'] > time())
+                    || (is_array($ip_throttle) && !empty($ip_throttle['locked_until']) && $ip_throttle['locked_until'] > time());
+                if ($locked) {
                     set_alert('error', translate('too_many_failed_login_attempts_please_try_again_later'));
                     redirect(base_url('authentication'));
                     exit();
@@ -119,6 +127,11 @@ class Authentication extends Authentication_Controller
                     $attempts = (is_array($throttle) ? (int) $throttle['attempts'] : 0) + 1;
                     $locked_until = ($attempts >= 5) ? (time() + 900) : 0;
                     $this->cache->save($throttle_key, array('attempts' => $attempts, 'locked_until' => $locked_until), 900);
+
+                    $ip_attempts = (is_array($ip_throttle) ? (int) $ip_throttle['attempts'] : 0) + 1;
+                    $ip_locked_until = ($ip_attempts >= 20) ? (time() + 900) : 0;
+                    $this->cache->save($ip_throttle_key, array('attempts' => $ip_attempts, 'locked_until' => $ip_locked_until), 900);
+
                     set_alert('error', translate('username_password_incorrect'));
                     redirect(base_url('authentication'));
                 }
