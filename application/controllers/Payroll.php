@@ -282,6 +282,14 @@ class Payroll extends Admin_Controller
             $stafflist = $this->input->post('stafflist');
             if (count($stafflist)) {
                 foreach ($stafflist as $key => $value) {
+                    // $value['id'] is client-supplied - verify it belongs to
+                    // the caller's branch before reassigning its salary template.
+                    if (!is_superadmin_loggedin()) {
+                        $staffBranch = $this->db->select('branch_id')->where('id', $value['id'])->get('staff')->row();
+                        if (empty($staffBranch) || $staffBranch->branch_id != $branchID) {
+                            continue;
+                        }
+                    }
                     $template_id = $value['template_id'];
                     if (empty($template_id)) {
                         $template_id = 0;

@@ -162,10 +162,16 @@ class Parents extends Admin_Controller
         if (!get_permission('parent', 'is_edit')) {
             access_denied();
         }
+        // Branch-scoped lookup up front - 404s if $id doesn't belong to the
+        // caller's school - and its validated id is what save() must target,
+        // never a client-supplied hidden field (same class of bug fixed in
+        // Student.php: don't trust $post['parent_id']).
+        $existingParent = $this->parents_model->getSingleParent($id);
         if (isset($_POST['update'])) {
             $this->parent_validation();
             if ($this->form_validation->run() == true) {
                 $post = $this->input->post();
+                $post['parent_id'] = $existingParent['id'];
                 //save all employee information in the database
                 $this->parents_model->save($post);
 
@@ -183,7 +189,7 @@ class Parents extends Admin_Controller
             }
         }
         $this->data['student_id'] = $id;
-        $this->data['parent'] = $this->parents_model->getSingleParent($id);
+        $this->data['parent'] = $existingParent;
         $this->data['title'] = translate('parents_profile');
         $this->data['main_menu'] = 'parents';
         $this->data['sub_page'] = 'parents/profile';

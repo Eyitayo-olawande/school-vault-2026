@@ -66,6 +66,9 @@ class Exam_model extends CI_Model
         if (!isset($data['exam_id'])) {
             $this->db->insert('exam', $arrayExam);
         } else {
+            // $data['exam_id'] is a client-supplied form field - verify it
+            // actually belongs to the caller's branch before updating it.
+            $this->app_lib->check_branch_restrictions('exam', $data['exam_id']);
             $this->db->where('id', $data['exam_id']);
             $this->db->update('exam', $arrayExam);
         }

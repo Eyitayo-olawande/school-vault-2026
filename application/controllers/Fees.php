@@ -214,6 +214,9 @@ class Fees extends Admin_Controller
             if ($this->form_validation->run() !== false) {
                 if (count($sel)) {
                     $groupID = $this->input->post('group_id');
+                    // group_id is client-supplied - verify it belongs to the
+                    // caller's branch before updating/deleting its contents.
+                    $this->app_lib->check_branch_restrictions('fee_groups', $groupID);
                     $arrayGroup = array(
                         'name' => $this->input->post('name'),
                         'description' => $this->input->post('description'),
@@ -347,6 +350,9 @@ class Fees extends Admin_Controller
                     'branch_id' => $branchID,
                     'session_id' => get_session_id(),
                 );
+                // $id is a client-supplied URL segment - verify it belongs
+                // to the caller's branch before updating it.
+                $this->app_lib->check_branch_restrictions('fee_fine', $id);
                 $this->db->where('id', $id);
                 $this->db->update('fee_fine', $insertData);
                 set_alert('success', translate('information_has_been_updated_successfully'));
@@ -935,6 +941,19 @@ class Fees extends Admin_Controller
 
             $feeDetails = $this->db->select('id,amount,fine')->where('id', $value)->get('fee_payment_history')->row();
             if (!empty($feeDetails)) {
+                // fee_payment_history has no branch_id of its own - trace
+                // ownership through fee_allocation before reverting a
+                // payment/adjusting balances for it.
+                if (!is_superadmin_loggedin()) {
+                    $paymentBranch = $this->db->select('fee_allocation.branch_id')
+                        ->from('fee_payment_history')
+                        ->join('fee_allocation', 'fee_allocation.id = fee_payment_history.allocation_id')
+                        ->where('fee_payment_history.id', $value)
+                        ->get()->row();
+                    if (empty($paymentBranch) || $paymentBranch->branch_id != get_loggedin_branch_id()) {
+                        continue;
+                    }
+                }
 
                 $amount = ($feeDetails->amount + $feeDetails->fine);
 
