@@ -24,6 +24,22 @@ class Settings extends Admin_Controller
         redirect(base_url(), 'refresh');
     }
 
+    /* Only move an uploaded file into place if it's actually an image -
+     * the destination filename/extension here is fixed by the caller, but
+     * the upload was previously accepted with zero validation of the
+     * source file's real type. */
+    private function safeMoveUpload($field, $destination)
+    {
+        if (empty($_FILES[$field]['tmp_name']) || !is_uploaded_file($_FILES[$field]['tmp_name'])) {
+            return;
+        }
+        $ext = strtolower(pathinfo($_FILES[$field]['name'], PATHINFO_EXTENSION));
+        if (!in_array($ext, array('jpg', 'jpeg', 'png', 'gif'), true)) {
+            return;
+        }
+        move_uploaded_file($_FILES[$field]['tmp_name'], $destination);
+    }
+
     /* global settings controller */
     public function universal()
     {
@@ -73,17 +89,17 @@ class Settings extends Admin_Controller
         }
 
         if ($this->input->post('submit') == 'logo') {
-            move_uploaded_file($_FILES['logo_file']['tmp_name'], 'uploads/app_image/logo.png');
-            move_uploaded_file($_FILES['text_logo']['tmp_name'], 'uploads/app_image/logo-small.png');
-            move_uploaded_file($_FILES['print_file']['tmp_name'], 'uploads/app_image/printing-logo.png');
-            move_uploaded_file($_FILES['report_card']['tmp_name'], 'uploads/app_image/report-card-logo.png');
+            $this->safeMoveUpload('logo_file', 'uploads/app_image/logo.png');
+            $this->safeMoveUpload('text_logo', 'uploads/app_image/logo-small.png');
+            $this->safeMoveUpload('print_file', 'uploads/app_image/printing-logo.png');
+            $this->safeMoveUpload('report_card', 'uploads/app_image/report-card-logo.png');
 
-            move_uploaded_file($_FILES['slider_1']['tmp_name'], 'uploads/login_image/slider_1.jpg');
-            move_uploaded_file($_FILES['slider_2']['tmp_name'], 'uploads/login_image/slider_2.jpg');
-            move_uploaded_file($_FILES['slider_3']['tmp_name'], 'uploads/login_image/slider_3.jpg');
+            $this->safeMoveUpload('slider_1', 'uploads/login_image/slider_1.jpg');
+            $this->safeMoveUpload('slider_2', 'uploads/login_image/slider_2.jpg');
+            $this->safeMoveUpload('slider_3', 'uploads/login_image/slider_3.jpg');
 
-            move_uploaded_file($_FILES['sidebox_1']['tmp_name'], 'assets/login_page/image/sidebox.jpg');
-            move_uploaded_file($_FILES['profile_bg']['tmp_name'], 'assets/images/profile_bg.jpg');
+            $this->safeMoveUpload('sidebox_1', 'assets/login_page/image/sidebox.jpg');
+            $this->safeMoveUpload('profile_bg', 'assets/images/profile_bg.jpg');
 
             set_alert('success', translate('the_configuration_has_been_updated'));
             $this->session->set_flashdata('active', 3);

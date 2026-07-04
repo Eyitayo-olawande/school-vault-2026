@@ -453,25 +453,22 @@ $config['csrf_token_name'] = 'school_csrf_name';
 $config['csrf_cookie_name'] = 'school_cookie_name';
 $config['csrf_expire'] = 7200;
 $config['csrf_regenerate'] = FALSE;
-$config['csrf_exclude_uris'] = array('paystack/webhook');
-
 // Only the payment-gateway callback/return actions can legitimately arrive
 // without a CSRF token, since the request comes from the gateway (browser
 // redirect or server-to-server IPN), not a form submitted on this site.
-// Exempting the *whole* feespayment/admissionpayment/etc controller (as
-// before) also disabled CSRF on user-initiated actions like "checkout",
-// which do need protection - so this only matches the known callback
-// action names, not every action under those controllers.
-if ($config['csrf_protection'] == TRUE && isset($_SERVER['REQUEST_URI'])) {
-    $payment_callback_pattern = '#/(feespayment|admissionpayment|onlineexam_payment|subscription|saas_payment)/'
+// Exempting the *whole* feespayment/admissionpayment/etc controller would
+// also disable CSRF on user-initiated actions like "checkout", which do
+// need protection - so only the known callback action names are listed.
+// Each entry here is itself a regex (CI anchors it with ^...$ and matches
+// against the URI string), so this reuses CI's own exclusion mechanism
+// instead of a second, parallel one.
+$config['csrf_exclude_uris'] = array(
+    'paystack/webhook',
+    '(feespayment|admissionpayment|onlineexam_payment|subscription|saas_payment)/'
         . '(getsuccesspayment|stripe_success|verify_paystack_payment|payumoney_success|razorpay_verify|'
         . 'sslcommerz_success|jazzcash_success|midtrans_success|verify_flutterwave_payment|paytm_success|'
-        . 'toyyibpay_success|toyyibpay_callbackurl|payhere_notify|payhere_return|nepalste_notify)(/|$|\?)#i';
-    $request_path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
-    if ($request_path !== null && preg_match($payment_callback_pattern, $request_path)) {
-        $config['csrf_protection'] = FALSE;
-    }
-}
+        . 'toyyibpay_success|toyyibpay_callbackurl|payhere_notify|payhere_return|payhere_cancel|nepalste_notify)(/.*)?',
+);
 
 /*
 |--------------------------------------------------------------------------

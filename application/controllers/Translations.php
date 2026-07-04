@@ -19,6 +19,19 @@ class Translations extends Admin_Controller
         parent::__construct();
     }
 
+    /* Only move an uploaded flag into place if it's actually an image. */
+    private function safeMoveFlagUpload($field, $destination)
+    {
+        if (empty($_FILES[$field]['tmp_name']) || !is_uploaded_file($_FILES[$field]['tmp_name'])) {
+            return;
+        }
+        $ext = strtolower(pathinfo($_FILES[$field]['name'], PATHINFO_EXTENSION));
+        if (!in_array($ext, array('jpg', 'jpeg', 'png', 'gif'), true)) {
+            return;
+        }
+        move_uploaded_file($_FILES[$field]['tmp_name'], $destination);
+    }
+
     public function index()
     {
         if (!get_permission('translations', 'is_view')) {
@@ -124,8 +137,8 @@ class Translations extends Admin_Controller
             $this->db->insert('language_list', array('name' => ucfirst($language)));
             $id = $this->db->insert_id();
 
-            if (!empty($_FILES["flag"]["name"])) {
-                move_uploaded_file($_FILES['flag']['tmp_name'], 'uploads/language_flags/flag_' . $id . '.png');
+            $this->safeMoveFlagUpload('flag', 'uploads/language_flags/flag_' . $id . '.png');
+            if (file_exists('uploads/language_flags/flag_' . $id . '.png')) {
                 $this->create_thumb('uploads/language_flags/flag_' . $id . '.png');
             }
 
@@ -163,8 +176,8 @@ class Translations extends Admin_Controller
                 'name' => $language,
             ));
 
-            if (!empty($_FILES["flag"]["name"])) {
-                move_uploaded_file($_FILES['flag']['tmp_name'], 'uploads/language_flags/flag_' . $id . '.png');
+            $this->safeMoveFlagUpload('flag', 'uploads/language_flags/flag_' . $id . '.png');
+            if (file_exists('uploads/language_flags/flag_' . $id . '.png')) {
                 $this->create_thumb('uploads/language_flags/flag_' . $id . '.png');
             }
 
