@@ -77,7 +77,9 @@ class Backup extends Admin_Controller
         if (!get_permission('backup', 'is_delete')) {
             access_denied();
         }
-        unlink('./uploads/db_backup/' . $file);
+        if (preg_match('/^[^.][-a-z0-9_.]+[a-z]$/i', $file)) {
+            unlink('./uploads/db_backup/' . $file);
+        }
     }
 
     public function restore_file()

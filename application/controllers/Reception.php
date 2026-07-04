@@ -137,6 +137,11 @@ class Reception extends Admin_Controller
     // file downloader
     public function download($type = '')
     {
+        // $type must be one of the known subdirectories - it's used directly
+        // in a filesystem path below, so anything else risks path traversal.
+        if (!in_array($type, array('complaint', 'postal'), true)) {
+            show_404();
+        }
         $encrypt_name = urldecode($this->input->get('file'));
         if(preg_match('/^[^.][-a-z0-9_.]+[a-z]$/i', $encrypt_name)) {
             $this->load->helper('download');
