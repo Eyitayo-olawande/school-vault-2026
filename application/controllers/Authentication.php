@@ -43,9 +43,23 @@ class Authentication extends Authentication_Controller
             if ($this->form_validation->run() !== false) {
                 $email = $this->input->post('email');
                 $password = $this->input->post('password');
+
+                // Brute-force throttle: lock out an email+IP combination for
+                // 15 minutes after 5 failed attempts. File-backed, no schema
+                // change needed, so this is safe to ship without a migration.
+                $this->load->driver('cache', array('adapter' => 'file'));
+                $throttle_key = 'login_throttle_' . md5(strtolower($email) . '_' . $this->input->ip_address());
+                $throttle = $this->cache->get($throttle_key);
+                if (is_array($throttle) && !empty($throttle['locked_until']) && $throttle['locked_until'] > time()) {
+                    set_alert('error', translate('too_many_failed_login_attempts_please_try_again_later'));
+                    redirect(base_url('authentication'));
+                    exit();
+                }
+
                 // username is okey lets check the password now
                 $login_credential = $this->authentication_model->login_credential($email, $password);
                 if ($login_credential) {
+                    $this->cache->delete($throttle_key);
                     if ($login_credential->active) {
                         $getUser = $this->application_model->getUserNameByRoleID($login_credential->role, $login_credential->user_id);
                         $getConfig = $this->db->select('translation,session_id')->get_where('global_settings', array('id' => 1))->row();
@@ -102,6 +116,9 @@ class Authentication extends Authentication_Controller
                         redirect(base_url('authentication'));
                     }
                 } else {
+                    $attempts = (is_array($throttle) ? (int) $throttle['attempts'] : 0) + 1;
+                    $locked_until = ($attempts >= 5) ? (time() + 900) : 0;
+                    $this->cache->save($throttle_key, array('attempts' => $attempts, 'locked_until' => $locked_until), 900);
                     set_alert('error', translate('username_password_incorrect'));
                     redirect(base_url('authentication'));
                 }

@@ -17,8 +17,16 @@ function translate($word = '')
         $set_lang = 'english';
     }
 
-    $sql = "SELECT `english`,`" . $set_lang . "` FROM `languages` WHERE `word` = '$word'";
-    $query = $CI->db->query($sql);
+    // Defense in depth: $set_lang is used as a raw column identifier below,
+    // so even though callers should already validate it, re-check here since
+    // this runs on nearly every page - a single unvalidated path anywhere
+    // upstream would otherwise be a SQL injection into every request.
+    if (!preg_match('/^[a-z_][a-z0-9_]*$/', $set_lang)) {
+        $set_lang = 'english';
+    }
+
+    $sql = "SELECT `english`,`" . $set_lang . "` FROM `languages` WHERE `word` = ?";
+    $query = $CI->db->query($sql, array($word));
     if ($query->num_rows() > 0) {
         if (isset($query->row()->$set_lang) && $query->row()->$set_lang != '') {
             return $query->row()->$set_lang;

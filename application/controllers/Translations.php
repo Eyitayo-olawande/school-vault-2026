@@ -44,6 +44,13 @@ class Translations extends Admin_Controller
     public function set_language($action = '')
     {
         if (is_loggedin()) {
+            // $action ends up as a raw column identifier in translate()'s SQL
+            // (application/helpers/general_helper.php), so it must be one of
+            // the actual configured languages, not whatever the URL says.
+            $valid_lang_fields = array_column($this->db->select('lang_field')->get('language_list')->result_array(), 'lang_field');
+            if (!in_array($action, $valid_lang_fields, true)) {
+                show_404();
+            }
             $this->session->set_userdata('set_lang', $action);
             $isRTL = $this->app_lib->getRTLStatus($action);
             $this->session->set_userdata('is_rtl', $isRTL);
