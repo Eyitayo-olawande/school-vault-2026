@@ -22,7 +22,7 @@
                     <div class="col-md-6" style="margin: auto 0;">
                         <h1>Admission Fees Payment</h1>
                         <h4>The amount of admission fee at <strong style="color: #5e5e5e;"><?php echo $get_student['first_name'] . " " . $get_student['last_name'] ?></strong> </h4>
-                        <span style="font-weight: bold; color: #4d4d4d; font-size: 22px;"><?php echo $get_student['symbol'] .  number_format($get_student['fee_elements']['amount'], 2, '.', ''); ?></span>
+                        <span style="font-weight: bold; color: #4d4d4d; font-size: 22px;"><?php echo currencyFormat($get_student['fee_elements']['amount']); ?></span>
                         <div class="pasha-image"> 
                             <img src="<?=$this->application_model->getBranchImage($get_student['branch_id'], 'logo')?>" width="280" height="auto" />
                         </div>

@@ -1,6 +1,8 @@
 <?php
-$widget = (is_superadmin_loggedin() ? 3 : 4);
+$widget    = (is_superadmin_loggedin() ? 2 : 3);
 $currency_symbol = $global_config['currency_symbol'];
+$selSessID = (int)set_value('session_id', $active_session);
+$selTerm   = set_value('term', '');
 ?>
 <div class="row">
 	<div class="col-md-12">
@@ -41,6 +43,29 @@ $currency_symbol = $global_config['currency_symbol'];
 								echo form_dropdown("section_id", $arraySection, set_value('section_id'), "class='form-control' id='section_id'
 								data-plugin-selectTwo data-width='100%' data-minimum-results-for-search='Infinity' ");
 							?>
+						</div>
+					</div>
+					<div class="col-md-<?php echo $widget; ?> mb-sm">
+						<div class="form-group">
+							<label class="control-label">Academic Session</label>
+							<select name="session_id" class="form-control"
+								data-plugin-selectTwo data-width="100%" data-minimum-results-for-search="Infinity">
+								<?php foreach ($session_list as $sid => $lbl): ?>
+									<option value="<?=$sid?>" <?=($sid == $selSessID) ? 'selected' : ''?>><?=htmlspecialchars($lbl)?></option>
+								<?php endforeach; ?>
+							</select>
+						</div>
+					</div>
+					<div class="col-md-<?php echo $widget; ?> mb-sm">
+						<div class="form-group">
+							<label class="control-label">Academic Term</label>
+							<select name="term" class="form-control"
+								data-plugin-selectTwo data-width="100%" data-minimum-results-for-search="Infinity">
+								<option value="" <?=empty($selTerm) ? 'selected' : ''?>>All Terms</option>
+								<option value="1ST TERM" <?=($selTerm === '1ST TERM') ? 'selected' : ''?>>1st Term</option>
+								<option value="2ND TERM" <?=($selTerm === '2ND TERM') ? 'selected' : ''?>>2nd Term</option>
+								<option value="3RD TERM" <?=($selTerm === '3RD TERM') ? 'selected' : ''?>>3rd Term</option>
+							</select>
 						</div>
 					</div>
 					<div class="col-md-<?php echo $widget; ?> mb-sm">
@@ -89,16 +114,7 @@ $currency_symbol = $global_config['currency_symbol'];
 						<tbody>
 							<?php
 							$count = 1;
-							$totalamount = 0;
-							$totaldiscount = 0;
-							$totalfine = 0;
-							$total = 0;
 							foreach($invoicelist as $row):
-								$totalamount += $row['amount'];
-								$totaldiscount += $row['discount'];
-								$totalfine += $row['fine'];
-								$totalp = ($row['amount'] + $row['fine']) - $row['discount'];
-								$total += $totalp;
 								?>
 							<tr>
 								<td><?php echo $count++; ?></td>
@@ -107,9 +123,11 @@ $currency_symbol = $global_config['currency_symbol'];
 								<td><?php echo $row['roll'];?></td>
 								<td><?php echo _d($row['date']);?></td>
 								<td><?php echo $row['class_name'] ." (" . $row['section_name'] . ")";?></td>
-								<td><?php 
-								if($row['collect_by'] == 'online'){
+								<td><?php
+								if ($row['collect_by'] == 'online') {
 									echo "Online";
+								} elseif ($row['collect_by'] == 'wallet') {
+									echo "DVA Wallet";
 								} else {
 									echo get_type_name_by_id('staff', $row['collect_by']);
 								} ?></td>
@@ -132,7 +150,7 @@ $currency_symbol = $global_config['currency_symbol'];
 								<th></th>
 								<th></th>
 								<th></th>
-								<th><?php echo currencyFormat($totalfine); ?></th>
+								<th id="fr-total-fine"><?php echo isset($totals) ? currencyFormat($totals['fine']) : '—'; ?></th>
 
 							</tr>
 						</tfoot>

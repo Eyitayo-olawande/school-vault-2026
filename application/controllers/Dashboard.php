@@ -66,7 +66,8 @@ class Dashboard extends Admin_Controller
             }
             $this->data['student_by_class'] = $this->dashboard_model->getStudentByClass($schoolID);
             $this->data['income_vs_expense'] = $this->dashboard_model->getIncomeVsExpense($schoolID);
-            $this->data['weekend_attendance'] = $this->dashboard_model->getWeekendAttendance($schoolID);
+            $this->data['weekend_attendance']  = $this->dashboard_model->getWeekendAttendance($schoolID);
+            $this->data['today_attendance']   = $this->dashboard_model->getTodayAttendanceSummary($schoolID);
             $this->data['get_monthly_admission'] = $this->dashboard_model->getMonthlyAdmission($schoolID);
             $this->data['get_voucher'] = $this->dashboard_model->getVoucher($schoolID);
             $this->data['get_transport_route'] = $this->dashboard_model->get_transport_route($schoolID);

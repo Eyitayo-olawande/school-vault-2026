@@ -1,6 +1,7 @@
 <?php
-$widget = (is_superadmin_loggedin() ? 4 : 6);
-$currency_symbol = $global_config['currency_symbol'];
+$widget = (is_superadmin_loggedin() ? 2 : 3);
+$selectedSessID = (int)set_value('session_id', $active_session);
+$selectedTerm   = set_value('term', '');
 ?>
 <div class="row">
 	<div class="col-md-12">
@@ -11,63 +12,59 @@ $currency_symbol = $global_config['currency_symbol'];
 			<?php echo form_open($this->uri->uri_string(), array('class' => 'validate'));?>
 			<div class="panel-body">
 				<div class="row">
-				<?php if (is_superadmin_loggedin() ): ?>
-					<div class="col-md-4">
-						<div class="form-group mb-sm">
+				<?php if (is_superadmin_loggedin()): ?>
+					<div class="col-md-2 mb-sm">
+						<div class="form-group">
 							<label class="control-label"><?=translate('branch')?> <span class="required">*</span></label>
 							<?php
 								$arrayBranch = $this->app_lib->getSelectList('branch');
-								echo form_dropdown("branch_id", $arrayBranch, set_value('branch_id'), "class='form-control' id='branch_id'
+								echo form_dropdown("branch_id", $arrayBranch, set_value('branch_id'), "class='form-control' id='branch_id' onchange='getClassByBranch(this.value)'
 								required data-plugin-selectTwo data-width='100%' data-minimum-results-for-search='Infinity'");
 							?>
 						</div>
 					</div>
 				<?php endif; ?>
-					<div class="col-md-<?php echo $widget; ?> mb-sm">
+					<div class="col-md-<?=$widget?> mb-sm">
 						<div class="form-group">
 							<label class="control-label"><?=translate('class')?> <span class="required">*</span></label>
 							<?php
 								$arrayClass = $this->app_lib->getClass($branch_id);
 								echo form_dropdown("class_id", $arrayClass, set_value('class_id'), "class='form-control' id='class_id' onchange='getSectionByClass(this.value,0)'
-								data-plugin-selectTwo data-width='100%' data-minimum-results-for-search='Infinity' ");
+								required data-plugin-selectTwo data-width='100%' data-minimum-results-for-search='Infinity'");
 							?>
 						</div>
 					</div>
-					<div class="col-md-<?php echo $widget; ?> mb-sm">
+					<div class="col-md-<?=$widget?> mb-sm">
 						<div class="form-group">
-							<label class="control-label"><?=translate('section')?> <span class="required">*</span></label>
+							<label class="control-label"><?=translate('section')?></label>
 							<?php
 								$arraySection = $this->app_lib->getSections(set_value('class_id'), false);
-								echo form_dropdown("section_id", $arraySection, set_value('section_id'), "class='form-control' id='section_id' required
-								data-plugin-selectTwo data-width='100%' data-minimum-results-for-search='Infinity' ");
+								echo form_dropdown("section_id", $arraySection, set_value('section_id'), "class='form-control' id='section_id'
+								data-plugin-selectTwo data-width='100%' data-minimum-results-for-search='Infinity'");
 							?>
 						</div>
 					</div>
-				</div>
-				<div class="row mb-sm"> 
-					<div class="col-md-4 mb-sm">
+					<div class="col-md-<?=$widget?> mb-sm">
 						<div class="form-group">
-							<label class="control-label"><?=translate('fees_type')?></label>
-							<select data-plugin-selectTwo class="form-control" name="fees_type" id="feesType">
-								
+							<label class="control-label">Academic Session <span class="required">*</span></label>
+							<select name="session_id" class="form-control" required
+								data-plugin-selectTwo data-width="100%" data-minimum-results-for-search="Infinity">
+								<?php foreach ($session_list as $sid => $label): ?>
+									<option value="<?=$sid?>" <?=($sid == $selectedSessID) ? 'selected' : ''?>><?=htmlspecialchars($label)?></option>
+								<?php endforeach; ?>
 							</select>
 						</div>
 					</div>
-					<div class="col-md-4 mb-sm">
+					<div class="col-md-<?=$widget?> mb-sm">
 						<div class="form-group">
-							<label class="control-label"><?=translate('student')?></label>
-							<select data-plugin-selectTwo class="form-control" name="student_id" id="student_id">
-								
+							<label class="control-label">Academic Term</label>
+							<select name="term" class="form-control"
+								data-plugin-selectTwo data-width="100%" data-minimum-results-for-search="Infinity">
+								<option value="" <?=empty($selectedTerm) ? 'selected' : ''?>>All Terms</option>
+								<option value="1ST TERM" <?=($selectedTerm === '1ST TERM') ? 'selected' : ''?>>1st Term</option>
+								<option value="2ND TERM" <?=($selectedTerm === '2ND TERM') ? 'selected' : ''?>>2nd Term</option>
+								<option value="3RD TERM" <?=($selectedTerm === '3RD TERM') ? 'selected' : ''?>>3rd Term</option>
 							</select>
-						</div>
-					</div>
-					<div class="col-md-4 mb-sm">
-						<div class="form-group">
-							<label class="control-label"><?php echo translate('date'); ?> <span class="required">*</span></label>
-							<div class="input-group">
-								<span class="input-group-addon"><i class="fas fa-calendar-check"></i></span>
-								<input type="text" class="form-control daterange" name="daterange" value="<?php echo set_value('daterange', date("Y/m/d") . ' - ' . date("Y/m/d")); ?>" required />
-							</div>
 						</div>
 					</div>
 				</div>
@@ -75,98 +72,143 @@ $currency_symbol = $global_config['currency_symbol'];
 			<footer class="panel-footer">
 				<div class="row">
 					<div class="col-md-offset-10 col-md-2">
-						<button type="submit" name="search" value="1" class="btn btn-default btn-block"> <i class="fas fa-filter"></i> <?=translate('filter')?></button>
+						<button type="submit" name="search" value="1" class="btn btn-default btn-block">
+							<i class="fas fa-filter"></i> <?=translate('filter')?>
+						</button>
 					</div>
 				</div>
 			</footer>
 			<?php echo form_close();?>
 		</section>
+
 <?php if (isset($invoicelist)): ?>
-		<style type="text/css">
-			tr.group {
-				font-weight: 600 !important;
-			}
-			tr.group {
-				color: #000;
-				background: #f5f5f5 !important;
-			}
-			html.dark tr.group {
-				color: #fff;
-				background: #383838 !important;
-			}
-			tr.odd td:first-child,
-			tr.even td:first-child {
-				padding-left: 18px;
-			}
-		</style>
-		<section class="panel appear-animation" data-appear-animation="<?php echo $global_config['animations'];?>" data-appear-animation-delay="100">
+		<section class="panel appear-animation" data-appear-animation="<?=$global_config['animations']?>" data-appear-animation-delay="100">
 			<header class="panel-heading">
-				<h4 class="panel-title"><i class="fas fa-list-ol"></i> <?=translate('student_fees_reports');?></h4>
+				<h4 class="panel-title"><i class="fas fa-list-ol"></i> <?=translate('student_fees_reports')?></h4>
 			</header>
+			<?php if (isset($summary)): ?>
+			<div class="panel-body pb-none">
+				<div class="row mb-md">
+					<div class="col-md-2 col-sm-6">
+						<div class="widget-summary widget-summary-sm">
+							<div class="widget-summary-col widget-summary-col-icon">
+								<div class="summary-icon bg-primary"><i class="fas fa-file-invoice-dollar"></i></div>
+							</div>
+							<div class="widget-summary-col">
+								<div class="summary">
+									<h4 class="title"><?=translate('total_fees')?></h4>
+									<div class="info"><strong class="amount"><?=currencyFormat($summary['expected'])?></strong></div>
+								</div>
+							</div>
+						</div>
+					</div>
+					<div class="col-md-2 col-sm-6">
+						<div class="widget-summary widget-summary-sm">
+							<div class="widget-summary-col widget-summary-col-icon">
+								<div class="summary-icon bg-success"><i class="fas fa-check-circle"></i></div>
+							</div>
+							<div class="widget-summary-col">
+								<div class="summary">
+									<h4 class="title"><?=translate('collected')?></h4>
+									<div class="info"><strong class="amount"><?=currencyFormat($summary['collected'])?></strong></div>
+								</div>
+							</div>
+						</div>
+					</div>
+					<div class="col-md-2 col-sm-6">
+						<div class="widget-summary widget-summary-sm">
+							<div class="widget-summary-col widget-summary-col-icon">
+								<div class="summary-icon bg-danger"><i class="fas fa-exclamation-circle"></i></div>
+							</div>
+							<div class="widget-summary-col">
+								<div class="summary">
+									<h4 class="title"><?=translate('outstanding')?></h4>
+									<div class="info"><strong class="amount"><?=currencyFormat($summary['outstanding'])?></strong></div>
+								</div>
+							</div>
+						</div>
+					</div>
+					<div class="col-md-2 col-sm-6">
+						<div class="widget-summary widget-summary-sm">
+							<div class="widget-summary-col widget-summary-col-icon">
+								<div class="summary-icon bg-warning"><i class="fas fa-percentage"></i></div>
+							</div>
+							<div class="widget-summary-col">
+								<div class="summary">
+									<h4 class="title"><?=translate('collection_rate')?></h4>
+									<div class="info"><strong class="amount"><?=number_format($summary['collection_rate'], 1)?>%</strong></div>
+								</div>
+							</div>
+						</div>
+					</div>
+					<div class="col-md-4 col-sm-6">
+						<div class="widget-summary widget-summary-sm">
+							<div class="widget-summary-col widget-summary-col-icon">
+								<div class="summary-icon bg-info"><i class="fas fa-users"></i></div>
+							</div>
+							<div class="widget-summary-col">
+								<div class="summary">
+									<h4 class="title">Students</h4>
+									<div class="info">
+										<strong class="amount text-success"><?=$summary['count_paid']?> Paid</strong>
+										&nbsp;|&nbsp;
+										<strong class="amount text-warning"><?=$summary['count_partial']?> Partial</strong>
+										&nbsp;|&nbsp;
+										<strong class="amount text-danger"><?=$summary['count_owing']?> Owing</strong>
+									</div>
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+			<?php endif; ?>
 			<div class="panel-body">
 				<div class="mb-md mt-md">
 					<div class="export_title"><?=translate('student_fees_reports')?></div>
-					<table class="table table-bordered table-condensed mb-none tbr-top" id="rowGroup">
+					<table class="table table-bordered table-condensed mb-none tbr-top" id="sfr-table">
 						<thead>
 							<tr>
 								<th><?=translate('student')?></th>
 								<th><?=translate('register_no')?></th>
 								<th><?=translate('roll')?></th>
-								<th><?=translate('fees_type')?></th>
-								<th><?=translate('due_date')?></th>
-								<th><?=translate('payment_date')?></th>
-								<th><?=translate('payment_via')?></th>
-								<th><?=translate('paid_amount')?></th>
-								<th><?=translate('discount')?></th>
-								<th><?=translate('fine')?></th>
-								<th><?=translate('total')?></th>
+								<th><?=translate('section')?></th>
+								<th><?=translate('total_fees')?></th>
+								<th>Net Paid</th>
+								<th><?=translate('outstanding')?></th>
+								<th>Status</th>
+								<th><?=translate('action')?></th>
 							</tr>
 						</thead>
 						<tbody>
-							<?php
-							$count = 1;
-							$totalamount = 0;
-							$totaldiscount = 0;
-							$totalfine = 0;
-							$total = 0;
-							foreach($invoicelist as $row):
-								$totalamount += $row['amount'];
-								$totaldiscount += $row['discount'];
-								$totalfine += $row['fine'];
-								$totalp = ($row['amount'] + $row['fine']) - $row['discount'];
-								$total += $totalp;
-								?>
+							<?php foreach ($invoicelist as $row):
+								if ($row['status'] === 'paid') {
+									$badge = '<span class="label label-success-custom">Paid</span>';
+								} elseif ($row['status'] === 'partial') {
+									$badge = '<span class="label label-warning-custom">Partial</span>';
+								} else {
+									$badge = '<span class="label label-danger-custom">Owing</span>';
+								}
+							?>
 							<tr>
-								<td><?php echo $row['first_name'] . ' ' . $row['last_name'];?></td>
-								<td><?php echo $row['register_no'];?></td>
-								<td><?php echo $row['roll'];?></td>
-								<td><?php echo $row['type_name'];?></td>
-								<td><?php echo _d($row['due_date']);?></td>
-								<td><?php echo _d($row['date']);?></td>
-								<td><?php echo $row['pay_via'];?></td>
-								<td><?php echo currencyFormat($row['amount']);?></td>
-								<td><?php echo currencyFormat($row['discount']);?></td>
-								<td><?php echo currencyFormat($row['fine']);?></td>
-								<td><?php echo currencyFormat($totalp);?></td>
-						
+								<td><?=htmlspecialchars($row['first_name'] . ' ' . $row['last_name'])?></td>
+								<td><?=htmlspecialchars($row['register_no'])?></td>
+								<td><?=htmlspecialchars($row['roll'])?></td>
+								<td><?=htmlspecialchars($row['section_name'])?></td>
+								<td><?=currencyFormat($row['expected'])?></td>
+								<td><?=currencyFormat($row['net_paid'])?></td>
+								<td><?=currencyFormat($row['balance'])?></td>
+								<td><?=$badge?></td>
+								<td>
+									<a href="<?=base_url('fees/student_ledger/' . $row['student_id'])?>"
+										class="btn btn-circle btn-default btn-xs" target="_blank"
+										data-toggle="tooltip" data-original-title="View Ledger">
+										<i class="fas fa-book-open"></i>
+									</a>
+								</td>
 							</tr>
 							<?php endforeach; ?>
 						</tbody>
-						<tfoot>
-							<tr>
-								<th></th>
-								<th></th>
-								<th></th>
-								<th></th>
-								<th></th>
-								<th></th>
-								<th></th>
-								<th><?php echo currencyFormat($totalamount); ?></th>
-								<th><?php echo currencyFormat($totaldiscount); ?></th>
-								<th><?php echo currencyFormat($totalfine); ?></th>
-								<th><?php echo currencyFormat($total); ?></th>
-							</tr>
-						</tfoot>
 					</table>
 				</div>
 			</div>
@@ -177,143 +219,19 @@ $currency_symbol = $global_config['currency_symbol'];
 
 <script type="text/javascript">
 	$(document).ready(function () {
-		$('#rowGroup').DataTable( {
+		$('#sfr-table').DataTable({
 			dom: '<"row"<"col-sm-6 mb-xs"B><"col-sm-6"f>><"table-responsive"t>p',
 			autoWidth: false,
-			pageLength: 25,
-		    order: [[0, 'asc']],
-		    rowGroup: {
-		        dataSrc: 0
-		    },
-		    columnDefs: [ {
-		        targets: [ 0 ],
-		        visible: false
-		    } ],
+			pageLength: 50,
+			order: [[3, 'asc'], [2, 'asc']],
 			"buttons": [
-				{
-					extend: 'copyHtml5',
-					text: '<i class="far fa-copy"></i>',
-					titleAttr: 'Copy',
-					title: $('.export_title').html(),
-					exportOptions: {
-						columns: ':visible'
-					}
-				},
-				{
-					extend: 'excelHtml5',
-					text: '<i class="fa fa-file-excel"></i>',
-					titleAttr: 'Excel',
-					title: $('.export_title').html(),
-					exportOptions: {
-						columns: ':visible'
-					}
-				},
-				{
-					extend: 'csvHtml5',
-					text: '<i class="fa fa-file-alt"></i>',
-					titleAttr: 'CSV',
-					title: $('.export_title').html(),
-					exportOptions: {
-						columns: ':visible'
-					}
-				},
-				{
-					extend: 'pdfHtml5',
-					text: '<i class="fa fa-file-pdf"></i>',
-					titleAttr: 'PDF',
-					title: $('.export_title').html(),
-					footer: true,
-					customize: function ( win ) {
-						win.styles.tableHeader.fontSize = 10;
-						win.styles.tableFooter.fontSize = 10;
-						win.styles.tableHeader.alignment = 'left';
-					},
-					exportOptions: {
-						columns: ':visible'
-					}
-				},
-				{
-					extend: 'print',
-					text: '<i class="fa fa-print"></i>',
-					titleAttr: 'Print',
-					title: $('.export_title').html(),
-					customize: function ( win ) {
-						$(win.document.body)
-							.css( 'font-size', '9pt' );
-
-						$(win.document.body).find( 'table' )
-							.addClass( 'compact' )
-							.css( 'font-size', 'inherit' );
-
-						$(win.document.body).find( 'h1' )
-							.css( 'font-size', '14pt' );
-					},
-					footer: true,
-					exportOptions: {
-						columns: ':visible'
-					}
-				},
-				{
-					extend: 'colvis',
-					text: '<i class="fas fa-columns"></i>',
-					titleAttr: 'Columns',
-					title: $('.export_title').html(),
-					postfixButtons: ['colvisRestore']
-				},
+				{ extend: 'copyHtml5',  text: '<i class="far fa-copy"></i>',    titleAttr: 'Copy',  title: $('.export_title').html(), exportOptions: { columns: ':not(:last-child)' } },
+				{ extend: 'excelHtml5', text: '<i class="fa fa-file-excel"></i>', titleAttr: 'Excel', title: $('.export_title').html(), exportOptions: { columns: ':not(:last-child)' } },
+				{ extend: 'csvHtml5',   text: '<i class="fa fa-file-alt"></i>',  titleAttr: 'CSV',   title: $('.export_title').html(), exportOptions: { columns: ':not(:last-child)' } },
+				{ extend: 'pdfHtml5',   text: '<i class="fa fa-file-pdf"></i>',  titleAttr: 'PDF',   title: $('.export_title').html(), footer: true, exportOptions: { columns: ':not(:last-child)' } },
+				{ extend: 'print',      text: '<i class="fa fa-print"></i>',     titleAttr: 'Print', title: $('.export_title').html(), footer: true, exportOptions: { columns: ':not(:last-child)' } },
+				{ extend: 'colvis',     text: '<i class="fas fa-columns"></i>',  titleAttr: 'Columns', postfixButtons: ['colvisRestore'] }
 			]
-		} );
-
-
-		var branchID = "<?=$branch_id?>";
-		var typeID = "<?=set_value('fees_type')?>";
-		var classID = "<?=set_value('class_id')?>";
-		var sectionID = "<?=set_value('section_id')?>";
-		getTypeByBranch(branchID, typeID);
-		getStudentByClass(branchID, classID, sectionID);
-
-		$('#branch_id').on('change', function() {
-			var branchID = $(this).val();
-			getClassByBranch(branchID);
-			getTypeByBranch(branchID);
-
 		});
-
-        $('#section_id').on('change', function() {
-            var section_id = $(this).val();
-            var class_id = $('#class_id').val();
-            var branch_id = ($( "#branch_id" ).length ? $('#branch_id').val() : "");
-            getStudentByClass(branch_id, class_id, section_id);
-        });
-
-        function getStudentByClass(branch_id, class_id, section_id) {
-			var student_id = "<?=set_value('student_id')?>";
-			$.ajax({
-				url: base_url + 'ajax/getStudentByClass',
-				type: 'POST',
-				data: {
-					branch_id: branch_id,
-					class_id: class_id,
-					section_id: section_id,
-					student_id: student_id
-				},
-				success: function (data) {
-					$('#student_id').html(data);
-				}
-			});
-        }
-
-		function getTypeByBranch(branchID, typeID) {
-		    $.ajax({
-		        url: base_url + 'fees/getTypeByBranch',
-		        type: 'POST',
-		        data: {
-		            'branch_id' : branchID,
-		            'type_id' : typeID
-		        },
-		        success: function (data) {
-		            $('#feesType').html(data);
-		        }
-		    });
-		}
 	});
 </script>

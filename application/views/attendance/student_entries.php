@@ -67,29 +67,48 @@
 	<section class="panel appear-animation" data-appear-animation="<?=$global_config['animations'] ?>" data-appear-animation-delay="100">
 		<?php
 			echo form_open($this->uri->uri_string());
-			$data = array('date' => $date, 'branch_id' => $branch_id);
-			echo form_hidden($data);
+			echo form_hidden(['date' => $date, 'branch_id' => $branch_id]);
 		?>
 		<header class="panel-heading">
 			<h4 class="panel-title"><i class="fas fa-users"></i> <?=translate('students_list')?></h4>
 		</header>
 		<div class="panel-body">
 			<?php if (!empty($attendencelist[0]['att_status'])) { ?>
-			 <div class="alert alert-success">Today's attendance has already been submitted, would you like to edit it?</div>
+			 <div class="alert alert-success">Today's attendance has already been submitted. You may edit it below.</div>
 			<?php } ?>
+
+			<?php if (!empty($periods)): ?>
+			<div class="row mb-sm">
+				<div class="col-md-4">
+					<div class="form-group">
+						<label class="control-label">Period (optional — leave blank for whole-day attendance)</label>
+						<select name="period_id" class="form-control" data-plugin-selectTwo data-width="100%">
+							<option value="">— Whole Day —</option>
+							<?php foreach ($periods as $p): ?>
+							<option value="<?=(int)$p['id']?>">
+								<?=html_escape($p['subject_name'])?> (<?=date('H:i', strtotime($p['time_start']))?> – <?=date('H:i', strtotime($p['time_end']))?>)
+							</option>
+							<?php endforeach; ?>
+						</select>
+					</div>
+				</div>
+			</div>
+			<?php endif; ?>
+
 			<div class="row">
 				<div class="col-md-offset-9 col-md-3">
 					<div class="form-group mb-sm">
 						<label class="control-label"><?=translate('select_for_everyone')?> <span class="required">*</span></label>
 						<?php
-							$array = array(
-								"" => translate('not_selected'),
-								"P" 	=> translate('present'),
-								"A" 	=> translate('absent'),
-								"L" 	=> translate('late'),
-								"HD" 	=> translate('half_day'),
-							);
-							echo form_dropdown("mark_all_everyone", $array, set_value('mark_all_everyone'), "class='form-control' 
+							$statusArray = [
+								""   => translate('not_selected'),
+								"P"  => translate('present'),
+								"A"  => translate('absent'),
+								"L"  => translate('late'),
+								"HD" => translate('half_day'),
+								"EA" => "Excused Absent",
+							];
+							echo form_dropdown("mark_all_everyone", $statusArray, set_value('mark_all_everyone'), "class='form-control'
 							onchange='selAtten_all(this.value)' data-plugin-selectTwo data-width='100%' data-minimum-results-for-search='Infinity' ");
 						?>
 					</div>
@@ -105,51 +124,50 @@
 									<th><?=translate('name')?></th>
 									<th><?=translate('roll')?></th>
 									<th><?=translate('register_no')?></th>
-									<th width="400"><?=translate('status')?></th>
+									<th width="460"><?=translate('status')?></th>
 									<th><?=translate('remarks')?></th>
 								</tr>
 							</thead>
 							<tbody>
 								<?php
 								$count = 1;
-								if(count($attendencelist)) {
-									foreach ($attendencelist as $key => $row):
-										?>
-								<tr>
-									<input type="hidden" name="attendance[<?=$key?>][attendance_id]" value="<?=$row['att_id']?>" >
-									<input type="hidden" name="attendance[<?=$key?>][enroll_id]" value="<?=$row['enroll_id']?>" >
-									<input type="hidden" name="attendance[<?=$key?>][student_id]" value="<?=$row['student_id']?>" >
-									<td><?php echo $count++; ?></td>
-									<td><?php echo $row['first_name'] . ' ' . $row['last_name']; ?></td>
-									<td><?php echo $row['roll']; ?></td>
-									<td><?php echo $row['register_no']; ?></td>
-									<td>
-										<div class="radio-custom radio-success radio-inline mt-xs">
-											<input type="radio" value="P" <?=(empty($row['att_status']) ? 'checked' : '')?> <?=($row['att_status'] == 'P' ? 'checked' : '')?> name="attendance[<?=$key?>][status]" id="pstatus_<?=$key?>">
-											<label for="pstatus_<?=$key?>"><?=translate('present')?></label>
-										</div>
-										<div class="radio-custom radio-danger radio-inline mt-xs">
-											<input type="radio" value="A" <?=($row['att_status'] == 'A' ? 'checked' : '')?> name="attendance[<?=$key?>][status]" id="astatus_<?=$key?>">
-											<label for="astatus_<?=$key?>"><?=translate('absent')?></label>
-										</div>
-										<div class="radio-custom radio-inline mt-xs">
-											<input type="radio" value="L" <?=($row['att_status'] == 'L' ? 'checked' : '')?> name="attendance[<?=$key?>][status]" id="lstatus_<?=$key?>">
-											<label for="lstatus_<?=$key?>"><?=translate('late')?></label>
-										</div>
-										<div class="radio-custom radio-inline mt-xs">
-											<input type="radio" value="HD" <?=($row['att_status'] == 'HD' ? 'checked' : '')?> name="attendance[<?=$key?>][status]" id="hdstatus_<?=$key?>">
-											<label for="hdstatus_<?=$key?>"><?=translate('half_day')?></label>
-										</div>
-									</td>
-									<td>
-										<input class="form-control" style="min-width: 110px;" name="attendance[<?=$key?>][remark]" type="text" placeholder="<?=translate('remarks')?>" value="<?=$row['att_remark']?>" >
-									</td>
-								</tr>
-									<?php 
-								endforeach;
-							} else {
-								echo '<tr><td colspan="6"><h5 class="text-danger text-center">'.translate('no_information_available').'</td></tr>';
-							} ?>
+								foreach ($attendencelist as $key => $row):
+								?>
+							<tr>
+								<input type="hidden" name="attendance[<?=$key?>][attendance_id]" value="<?=$row['att_id']?>" >
+								<input type="hidden" name="attendance[<?=$key?>][enroll_id]"    value="<?=$row['enroll_id']?>" >
+								<input type="hidden" name="attendance[<?=$key?>][student_id]"  value="<?=$row['student_id']?>" >
+								<td><?php echo $count++; ?></td>
+								<td><?=html_escape($row['first_name'] . ' ' . $row['last_name'])?></td>
+								<td><?=html_escape($row['roll'])?></td>
+								<td><?=html_escape($row['register_no'])?></td>
+								<td>
+									<div class="radio-custom radio-success radio-inline mt-xs">
+										<input type="radio" value="P" <?=(empty($row['att_status']) || $row['att_status'] == 'P' ? 'checked' : '')?> name="attendance[<?=$key?>][status]" id="pstatus_<?=$key?>">
+										<label for="pstatus_<?=$key?>"><?=translate('present')?></label>
+									</div>
+									<div class="radio-custom radio-danger radio-inline mt-xs">
+										<input type="radio" value="A" <?=($row['att_status'] == 'A' ? 'checked' : '')?> name="attendance[<?=$key?>][status]" id="astatus_<?=$key?>">
+										<label for="astatus_<?=$key?>"><?=translate('absent')?></label>
+									</div>
+									<div class="radio-custom radio-inline mt-xs">
+										<input type="radio" value="L" <?=($row['att_status'] == 'L' ? 'checked' : '')?> name="attendance[<?=$key?>][status]" id="lstatus_<?=$key?>">
+										<label for="lstatus_<?=$key?>"><?=translate('late')?></label>
+									</div>
+									<div class="radio-custom radio-inline mt-xs">
+										<input type="radio" value="HD" <?=($row['att_status'] == 'HD' ? 'checked' : '')?> name="attendance[<?=$key?>][status]" id="hdstatus_<?=$key?>">
+										<label for="hdstatus_<?=$key?>"><?=translate('half_day')?></label>
+									</div>
+									<div class="radio-custom radio-primary radio-inline mt-xs">
+										<input type="radio" value="EA" <?=($row['att_status'] == 'EA' ? 'checked' : '')?> name="attendance[<?=$key?>][status]" id="eastatus_<?=$key?>">
+										<label for="eastatus_<?=$key?>">Excused</label>
+									</div>
+								</td>
+								<td>
+									<input class="form-control" style="min-width: 110px;" name="attendance[<?=$key?>][remark]" type="text" placeholder="<?=translate('remarks')?>" value="<?=html_escape($row['att_remark'])?>" >
+								</td>
+							</tr>
+								<?php endforeach; ?>
 							</tbody>
 						</table>
 					</div>
@@ -158,7 +176,14 @@
 		</div>
 		<div class="panel-footer">
 			<div class="row">
-				<div class="col-md-offset-10 col-md-2">
+				<div class="col-md-offset-7 col-md-3">
+					<a href="<?=base_url('attendance/notify_today')?>"
+					   class="btn btn-info btn-block"
+					   onclick="return confirm('Send SMS to parents of all absent/late students queued for this branch now?');">
+						<i class="fas fa-bell"></i> Notify Parents
+					</a>
+				</div>
+				<div class="col-md-2">
 					<button type="submit" class="btn btn-default btn-block" name="save" value="1">
 						<i class="fas fa-plus-circle"></i> <?=translate('save')?>
 					</button>
@@ -170,7 +195,8 @@
 <?php endif; ?>
 
 <script type="text/javascript">
-	var dayOfWeekDisabled = "<?php echo $getWeekends ?>";
+	// Weekend day numbers (0=Sun … 6=Sat) passed directly to the datepicker — no 365-day loop
+	var dayOfWeekDisabled = [<?php echo $getWeekends ?>];
 
 	$(document).ready(function () {
 		var datePicker = $("#attDate").datepicker({
@@ -179,23 +205,22 @@
 		    autoclose: true,
 		    format: 'yyyy-mm-dd',
 		    daysOfWeekDisabled: dayOfWeekDisabled,
-		    datesDisabled: ["<?php echo $getHolidays ?>"],
-		});   
+		    datesDisabled: [<?php if (!empty($getHolidays)) echo '"' . $getHolidays . '"'; ?>],
+		});
     });
-    
+
 	$('select#branchID').change(function() {
 		var branchID = $(this).val();
 		$.ajax({
 			url: base_url + "attendance/getWeekendsHolidays",
 			type: 'POST',
 			dataType: "json",
-			data: {
-				branch_id: branchID,
-			},
+			data: { branch_id: branchID },
 			success: function (data) {
 				$('#attDate').val("");
 				$('#attDate').datepicker('setDaysOfWeekDisabled', data.getWeekends);
-				$('#attDate').datepicker('setDatesDisabled', JSON.parse(data.getHolidays));
+				// getHolidays is now a proper JS array — no JSON.parse needed
+				$('#attDate').datepicker('setDatesDisabled', data.getHolidays);
 			}
 		});
 	});

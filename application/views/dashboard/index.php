@@ -179,6 +179,107 @@ if (get_permission('student_birthday_widget', 'is_view') || get_permission('staf
 		</div>
 	</div>
 <?php } ?>
+<?php if (get_permission('weekend_attendance_inspection_chart', 'is_view') && moduleIsEnabled('attendance')): ?>
+	<!-- Today's attendance snapshot -->
+	<?php
+	$todayAtt    = $today_attendance ?? ['total_enrolled'=>0,'total_marked'=>0,'overall_pct'=>null,'by_class'=>[]];
+	$attEnrolled = (int)$todayAtt['total_enrolled'];
+	$attMarked   = (int)$todayAtt['total_marked'];
+	$attPct      = $todayAtt['overall_pct'];
+	$attUnmarked = [];
+	foreach ($todayAtt['by_class'] as $attRow) {
+		if ((int)$attRow['marked'] === 0) {
+			$attUnmarked[] = html_escape($attRow['class_name'] . ' ' . $attRow['section_name']);
+		}
+	}
+	?>
+	<div class="row">
+		<div class="col-md-12">
+			<section class="panel">
+				<header class="panel-heading">
+					<h4 class="panel-title">
+						<i class="fas fa-calendar-check text-success"></i>
+						Today's Attendance &mdash; <?=date('d M Y')?>
+						<a href="<?=base_url('attendance/student_classreport')?>" class="btn btn-default btn-xs pull-right mt-xs">
+							<i class="fas fa-table"></i> Full Report
+						</a>
+						<?php if (!empty($todayAtt['by_class'])): ?>
+						<a href="javascript:void(0);" id="attToggleBtn" onclick="(function(){var t=document.getElementById('attDetailTable'),b=document.getElementById('attToggleBtn');if(t.style.display==='none'){t.style.display='';b.innerHTML='<i class=\'fas fa-eye-slash\'></i> Hide Breakdown';}else{t.style.display='none';b.innerHTML='<i class=\'fas fa-eye\'></i> View Breakdown';}})()" class="btn btn-info btn-xs pull-right mt-xs mr-xs">
+							<i class="fas fa-eye"></i> View Breakdown
+						</a>
+						<?php endif; ?>
+					</h4>
+				</header>
+				<div class="panel-body">
+				<div class="row widget-row-in mb-sm">
+					<div class="col-lg-3 col-sm-6 widget-row-d-br">
+						<div class="widget-col-in row">
+							<div class="col-xs-6"><i class="fas fa-user-graduate"></i><h5 class="text-muted">Enrolled</h5></div>
+							<div class="col-xs-6"><h3 class="counter text-right mt-md text-primary"><?=$attEnrolled?></h3></div>
+							<div class="col-xs-12"><div class="box-top-line line-color-primary"><span class="text-uppercase text-muted">Students</span></div></div>
+						</div>
+					</div>
+					<div class="col-lg-3 col-sm-6 widget-row-d-br">
+						<div class="widget-col-in row">
+							<div class="col-xs-6"><i class="fas fa-clipboard-check"></i><h5 class="text-muted">Marked</h5></div>
+							<div class="col-xs-6"><h3 class="counter text-right mt-md text-info"><?=$attMarked?></h3></div>
+							<div class="col-xs-12"><div class="box-top-line" style="background:#5bc0de"><span class="text-uppercase text-muted">of <?=$attEnrolled?></span></div></div>
+						</div>
+					</div>
+					<div class="col-lg-3 col-sm-6 widget-row-d-br">
+						<div class="widget-col-in row">
+							<div class="col-xs-6"><i class="fas fa-check-circle"></i><h5 class="text-muted">Present</h5></div>
+							<div class="col-xs-6"><h3 class="counter text-right mt-md text-success"><?=$attPct !== null ? $attPct . '%' : '—'?></h3></div>
+							<div class="col-xs-12"><div class="box-top-line" style="background:#5cb85c"><span class="text-uppercase text-muted">Attendance rate</span></div></div>
+						</div>
+					</div>
+					<div class="col-lg-3 col-sm-6">
+						<div class="widget-col-in row">
+							<div class="col-xs-6"><i class="fas fa-exclamation-triangle text-danger"></i><h5 class="text-muted">Unmarked</h5></div>
+							<div class="col-xs-6"><h3 class="counter text-right mt-md text-danger"><?=count($attUnmarked)?></h3></div>
+							<div class="col-xs-12"><div class="box-top-line" style="background:#d9534f"><span class="text-uppercase text-muted">Classes</span></div></div>
+						</div>
+					</div>
+				</div>
+				<?php if (!empty($todayAtt['by_class'])): ?>
+				<div id="attDetailTable" style="display:none;">
+					<div class="table-responsive mt-sm">
+						<table class="table table-bordered table-condensed mb-none">
+							<thead>
+								<tr>
+									<th>Class</th><th>Section</th>
+									<th class="text-center">Enrolled</th>
+									<th class="text-center">Marked</th>
+									<th class="text-center">Present %</th>
+								</tr>
+							</thead>
+							<tbody>
+							<?php foreach ($todayAtt['by_class'] as $attRow): ?>
+								<?php $rp = $attRow['pct']; ?>
+								<tr>
+									<td><?=html_escape($attRow['class_name'])?></td>
+									<td><?=html_escape($attRow['section_name'])?></td>
+									<td class="text-center"><?=(int)$attRow['enrolled']?></td>
+									<td class="text-center"><?=(int)$attRow['marked']?></td>
+									<td class="text-center">
+										<?php if ($rp !== null): ?>
+										<span class="label <?=$rp>=80?'label-success':($rp>=60?'label-warning':'label-danger')?>">
+											<?=$rp?>%
+										</span>
+										<?php else: ?><span class="text-muted">—</span><?php endif; ?>
+									</td>
+								</tr>
+							<?php endforeach; ?>
+							</tbody>
+						</table>
+					</div>
+				</div>
+				<?php endif; ?>
+				</div>
+			</section>
+		</div>
+	</div>
+<?php endif; ?>
 	<!-- student quantity chart -->
 	<div class="row">
 <?php if (get_permission('student_quantity_pie_chart', 'is_view')) { ?>

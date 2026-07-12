@@ -107,7 +107,7 @@
 						                } else {
 						                    $presnt_absent = 0;
 						                }
-						                echo $presnt_percent . "%";
+						                echo $presnt_absent . "%";
 									 ?></td>
 									
 									<?php endforeach; ?>

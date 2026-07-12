@@ -1050,9 +1050,31 @@ class Student extends Admin_Controller
         }
         $branchID = $this->application_model->get_branch_id();
         if (isset($_POST['search'])) {
-            $classID = $this->input->post('class_id');
+            $classID   = $this->input->post('class_id');
             $sectionID = $this->input->post('section_id');
-            $this->data['students'] = $this->application_model->getStudentListByClassSection($classID, $sectionID, $branchID, false, true);
+            $students  = $this->application_model->getStudentListByClassSection($classID, $sectionID, $branchID, false, true);
+
+            // Batch-fetch DVA records for these students
+            if (!empty($students)) {
+                $studentIDs = array_column($students, 'student_id');
+                $dvaRows    = $this->db->select('user_id, account_number, dedicated_account_bank, account_name')
+                    ->where_in('user_id', $studentIDs)
+                    ->where('active', 1)
+                    ->get('dedicated_virtual_account')->result_array();
+                $dvaMap = [];
+                foreach ($dvaRows as $d) {
+                    $dvaMap[(int)$d['user_id']] = $d;
+                }
+                foreach ($students as &$s) {
+                    $dva = $dvaMap[(int)$s['student_id']] ?? [];
+                    $s['dva_account'] = $dva['account_number']          ?? '';
+                    $s['dva_bank']    = $dva['dedicated_account_bank']  ?? '';
+                    $s['dva_name']    = $dva['account_name']            ?? '';
+                }
+                unset($s);
+            }
+
+            $this->data['students'] = $students;
         }
         $this->data['branch_id'] = $branchID;
         $this->data['title'] = translate('login_credential');

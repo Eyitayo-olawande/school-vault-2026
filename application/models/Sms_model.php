@@ -238,6 +238,68 @@ class Sms_model extends CI_Model
         }
     }
 
+    /**
+     * Queue an SMS for asynchronous sending instead of blocking the HTTP request.
+     * Used by attendance saving to avoid in-loop gateway calls.
+     */
+    public function queue_sms($mobile, $message, $dlt_template_id = '', $branch_id = null)
+    {
+        if (empty($mobile) || empty($message)) {
+            return;
+        }
+        $this->db->insert('sms_queue', [
+            'mobile'          => $mobile,
+            'message'         => $message,
+            'dlt_template_id' => (string)$dlt_template_id,
+            'branch_id'       => (int)($branch_id ?? $this->application_model->get_branch_id()),
+            'status'          => 0,
+        ]);
+    }
+
+    /**
+     * Process pending items in the SMS queue (call from a cron endpoint).
+     * Processes up to $limit items per run to avoid gateway timeouts.
+     * Returns counts of sent/failed items.
+     */
+    public function flush_queue($branch_id = null, $limit = 50)
+    {
+        $query = $this->db->where('status', 0)->order_by('created_at', 'ASC')->limit($limit);
+        if ($branch_id) {
+            $query->where('branch_id', (int)$branch_id);
+        }
+        $pending = $this->db->get('sms_queue')->result_array();
+
+        $sent = $failed = 0;
+        foreach ($pending as $item) {
+            $sms_api = $this->application_model->smsServiceProvider($item['branch_id']);
+            if ($sms_api === 'disabled') {
+                $this->db->where('id', $item['id'])->update('sms_queue', ['status' => 2, 'error_msg' => 'SMS disabled for branch', 'sent_at' => date('Y-m-d H:i:s')]);
+                $failed++;
+                continue;
+            }
+            try {
+                $this->_send($sms_api, $item['mobile'], $item['message'], $item['dlt_template_id']);
+                $this->db->where('id', $item['id'])->update('sms_queue', ['status' => 1, 'sent_at' => date('Y-m-d H:i:s')]);
+                $sent++;
+            } catch (Exception $e) {
+                $retries = (int)$item['retry_count'] + 1;
+                $finalStatus = $retries >= 3 ? 2 : 0;
+                $this->db->where('id', $item['id'])->update('sms_queue', ['status' => $finalStatus, 'retry_count' => $retries, 'error_msg' => substr($e->getMessage(), 0, 500)]);
+                $failed++;
+            }
+        }
+        return ['sent' => $sent, 'failed' => $failed, 'total' => count($pending)];
+    }
+
+    /** Count pending items in the queue (shown on admin dashboard). */
+    public function queue_pending_count($branch_id = null)
+    {
+        if ($branch_id) {
+            $this->db->where('branch_id', (int)$branch_id);
+        }
+        return $this->db->where('status', 0)->count_all_results('sms_queue');
+    }
+
     public function _send($sms_api, $receiver, $text, $dlt_template_id = '')
     {
         if ($sms_api == 2) {

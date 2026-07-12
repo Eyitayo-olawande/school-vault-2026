@@ -75,11 +75,12 @@
 								<label class="control-label"><?=translate('select_for_everyone')?> <span class="required">*</span></label>
 								<?php
 									$array = array(
-										"" => translate('not_selected'),
-										"P" => translate('present'),
-										"A" => translate('absent'),
-										"L" => translate('late'),
-										"HD" 	=> translate('half_day'),
+										""   => translate('not_selected'),
+										"P"  => translate('present'),
+										"A"  => translate('absent'),
+										"L"  => translate('late'),
+										"HD" => translate('half_day'),
+										"EA" => "Excused Absent",
 									);
 									echo form_dropdown("mark_all_everyone", $array, set_value('mark_all_everyone'), "class='form-control' 
 									onchange='selAtten_all(this.value)' data-plugin-selectTwo data-width='100%' data-minimum-results-for-search='Infinity' ");
@@ -130,6 +131,10 @@
 												<div class="radio-custom radio-inline mt-xs">
 													<input type="radio" value="HD" <?=($row['att_status'] == 'HD' ? 'checked' : '')?> name="attendance[<?=$key?>][status]" id="hdstatus_<?=$key?>">
 													<label for="hdstatus_<?=$key?>"><?=translate('half_day')?></label>
+												</div>
+												<div class="radio-custom radio-primary radio-inline mt-xs">
+													<input type="radio" value="EA" <?=($row['att_status'] == 'EA' ? 'checked' : '')?> name="attendance[<?=$key?>][status]" id="eastatus_<?=$key?>">
+													<label for="eastatus_<?=$key?>">Excused</label>
 												</div>
 											</td>
 											<td><input class="form-control" name="attendance[<?=$key?>][remark]" type="text" placeholder="<?=translate('remarks')?>" value="<?=$row['att_remark']?>" ></td>
@@ -184,7 +189,7 @@
 			success: function (data) {
 				$('#attDate').val("");
 				$('#attDate').datepicker('setDaysOfWeekDisabled', data.getWeekends);
-				$('#attDate').datepicker('setDatesDisabled', JSON.parse(data.getHolidays));
+				$('#attDate').datepicker('setDatesDisabled', data.getHolidays);
 			}
 		});
 	});

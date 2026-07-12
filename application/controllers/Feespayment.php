@@ -230,16 +230,16 @@ class Feespayment extends Admin_Controller
                         $ref_id = $paypalResponse['PAYMENTINFO_0_TRANSACTIONID'];
                         // payment info update in invoice
                         $arrayFees = array(
-                            'allocation_id' => $params['allocation_id'],
-                            'type_id' => $params['type_id'],
-                            'collect_by' => "",
-                            'amount' => floatval($paypalResponse['PAYMENTINFO_0_AMT'] - $params['fine']),
-                            'discount' => 0,
-                            'fine' => $params['fine'],
-                            'pay_via' => 6,
-                            'collect_by' => 'online',
-                            'remarks' => "Fees deposits online via Paypal Ref ID: " . $ref_id,
-                            'date' => date("Y-m-d"),
+                            'allocation_id'     => $params['allocation_id'],
+                            'type_id'           => $params['type_id'],
+                            'collect_by'        => 'online',
+                            'amount'            => floatval($paypalResponse['PAYMENTINFO_0_AMT'] - $params['fine']),
+                            'discount'          => 0,
+                            'fine'              => $params['fine'],
+                            'pay_via'           => 6,
+                            'gateway_reference' => $ref_id,
+                            'remarks'           => "Fees deposits online via Paypal Ref ID: " . $ref_id,
+                            'date'              => date("Y-m-d"),
                         );
                         $this->savePaymentData($arrayFees);
 
@@ -297,16 +297,16 @@ class Feespayment extends Admin_Controller
                     $ref_id = $response->payment_intent;
                     // payment info update in invoice
                     $arrayFees = array(
-                        'allocation_id' => $params['allocation_id'],
-                        'type_id' => $params['type_id'],
-                        'collect_by' => "",
-                        'amount' => ($amount - floatval($params['fine'])),
-                        'discount' => 0,
-                        'fine' => $params['fine'],
-                        'pay_via' => 7,
-                        'collect_by' => 'online',
-                        'remarks' => "Fees deposits online via Stripe Ref ID: " . $ref_id,
-                        'date' => date("Y-m-d"),
+                        'allocation_id'     => $params['allocation_id'],
+                        'type_id'           => $params['type_id'],
+                        'collect_by'        => 'online',
+                        'amount'            => ($amount - floatval($params['fine'])),
+                        'discount'          => 0,
+                        'fine'              => $params['fine'],
+                        'pay_via'           => 7,
+                        'gateway_reference' => $ref_id,
+                        'remarks'           => "Fees deposits online via Stripe Ref ID: " . $ref_id,
+                        'date'              => date("Y-m-d"),
                     );
                     $this->savePaymentData($arrayFees);
                     set_alert('success', translate('payment_successfull'));
@@ -343,12 +343,11 @@ class Feespayment extends Admin_Controller
                 //Hafeez Lawal:  Save the Transaction before calling Paystack
                 $arrayFeesTransaction = array(
                     'allocation_id' => $params['allocation_id'],
-                    'type_id' => $params['type_id'],
-                    'amount' => $amount,
-                    'collect_by' => "",
-                    'pay_via' => 9,
-                    'collect_by' => 'online',
-                    'date' => date("Y-m-d"),
+                    'type_id'       => $params['type_id'],
+                    'amount'        => $amount,
+                    'collect_by'    => 'online',
+                    'pay_via'       => 9,
+                    'date'          => date("Y-m-d"),
                     'pay_reference' => $ref,
                 );
                 $this->Feepaymenttransaction_model->insert_transaction($arrayFeesTransaction);
@@ -406,20 +405,25 @@ class Feespayment extends Admin_Controller
                 if ($result['data']) {
                     //something came in
                     if ($result['data']['status'] == 'success') {
-                        // payment info update in invoice
-                        $arrayFees = array(
-                            'allocation_id' => $params['allocation_id'],
-                            'type_id' => $params['type_id'],
-                            'collect_by' => "",
-                            'amount' => $params['amount'],
-                            'discount' => 0,
-                            'fine' => $params['fine'],
-                            'pay_via' => 9,
-                            'collect_by' => 'online',
-                            'remarks' => "Fees deposits online via Paystack Ref ID: " . $ref,
-                            'date' => date("Y-m-d"),
-                        );
-                        $this->savePaymentData($arrayFees);
+                        // Idempotency: gateway_reference is UNIQUE — skip if already applied
+                        $already = $this->db->where('gateway_reference', $ref)->count_all_results('fee_payment_history');
+                        if ($already < 1) {
+                            $arrayFees = array(
+                                'allocation_id'     => $params['allocation_id'],
+                                'type_id'           => $params['type_id'],
+                                'collect_by'        => 'online',
+                                'amount'            => $params['amount'],
+                                'discount'          => 0,
+                                'fine'              => $params['fine'],
+                                'pay_via'           => 9,
+                                'gateway_reference' => $ref,
+                                'remarks'           => "Fees deposits online via Paystack Ref ID: " . $ref,
+                                'date'              => date("Y-m-d"),
+                            );
+                            $this->savePaymentData($arrayFees);
+                            // Remove the staging record now that it has been applied
+                            $this->db->where('pay_reference', $ref)->delete('fee_payment_transaction');
+                        }
 
                         set_alert('success', translate('payment_successfull'));
                         redirect(base_url('userrole/invoice'));
@@ -526,16 +530,16 @@ class Feespayment extends Admin_Controller
                 if ($txn_id == $transactionid) {
                     // payment info update in invoice
                     $arrayFees = array(
-                        'allocation_id' => $params['allocation_id'],
-                        'type_id' => $params['type_id'],
-                        'collect_by' => "",
-                        'amount' => ($this->input->post('amount') - $params['fine']),
-                        'discount' => 0,
-                        'fine' => $params['fine'],
-                        'pay_via' => 8,
-                        'collect_by' => 'online',
-                        'remarks' => "Fees deposits online via PayU TXN ID: " . $txn_id . " / PayU Ref ID: " . $mihpayid,
-                        'date' => date("Y-m-d"),
+                        'allocation_id'     => $params['allocation_id'],
+                        'type_id'           => $params['type_id'],
+                        'collect_by'        => 'online',
+                        'amount'            => ($this->input->post('amount') - $params['fine']),
+                        'discount'          => 0,
+                        'fine'              => $params['fine'],
+                        'pay_via'           => 8,
+                        'gateway_reference' => $mihpayid,
+                        'remarks'           => "Fees deposits online via PayU TXN ID: " . $txn_id . " / PayU Ref ID: " . $mihpayid,
+                        'date'              => date("Y-m-d"),
                     );
                     $this->savePaymentData($arrayFees);
 
@@ -597,16 +601,16 @@ class Feespayment extends Admin_Controller
             if ($response == true) {
                 // payment info update in invoice
                 $arrayFees = array(
-                    'allocation_id' => $params['allocation_id'],
-                    'type_id' => $params['type_id'],
-                    'collect_by' => "",
-                    'amount' => ($params['amount']),
-                    'discount' => 0,
-                    'fine' => $params['fine'],
-                    'pay_via' => 10,
-                    'collect_by' => 'online',
-                    'remarks' => "Fees deposits online via Razorpay TxnID: " . $attributes['razorpay_payment_id'],
-                    'date' => date("Y-m-d"),
+                    'allocation_id'     => $params['allocation_id'],
+                    'type_id'           => $params['type_id'],
+                    'collect_by'        => 'online',
+                    'amount'            => ($params['amount']),
+                    'discount'          => 0,
+                    'fine'              => $params['fine'],
+                    'pay_via'           => 10,
+                    'gateway_reference' => $attributes['razorpay_payment_id'],
+                    'remarks'           => "Fees deposits online via Razorpay TxnID: " . $attributes['razorpay_payment_id'],
+                    'date'              => date("Y-m-d"),
                 );
                 $this->savePaymentData($arrayFees);
                 set_alert('success', translate('payment_successfull'));
@@ -667,16 +671,16 @@ class Feespayment extends Admin_Controller
             if ($this->sslcommerz->ValidateResponse($_POST['currency_amount'], "BDT", $_POST)) {
                 $tran_id = $params['tran_id'];
                 $arrayFees = array(
-                    'allocation_id' => $params['allocation_id'],
-                    'type_id' => $params['type_id'],
-                    'collect_by' => "",
-                    'amount' => floatval($_POST['currency_amount'] - $params['fine']),
-                    'discount' => 0,
-                    'fine' => $params['fine'],
-                    'pay_via' => 11,
-                    'collect_by' => 'online',
-                    'remarks' => "Fees deposits online via SSLcommerz TXN ID: " . $tran_id,
-                    'date' => date("Y-m-d"),
+                    'allocation_id'     => $params['allocation_id'],
+                    'type_id'           => $params['type_id'],
+                    'collect_by'        => 'online',
+                    'amount'            => floatval($_POST['currency_amount'] - $params['fine']),
+                    'discount'          => 0,
+                    'fine'              => $params['fine'],
+                    'pay_via'           => 11,
+                    'gateway_reference' => $tran_id,
+                    'remarks'           => "Fees deposits online via SSLcommerz TXN ID: " . $tran_id,
+                    'date'              => date("Y-m-d"),
                 );
                 $this->savePaymentData($arrayFees);
                 set_alert('success', translate('payment_successfull'));
@@ -771,16 +775,16 @@ class Feespayment extends Admin_Controller
         if ($_POST['pp_ResponseCode'] == '000') {
             $tran_id = $_POST['pp_TxnRefNo'];
             $arrayFees = array(
-                'allocation_id' => $params['allocation_id'],
-                'type_id' => $params['type_id'],
-                'collect_by' => "",
-                'amount' => floatval($params['amount']),
-                'discount' => 0,
-                'fine' => $params['fine'],
-                'pay_via' => 12,
-                'collect_by' => 'online',
-                'remarks' => "Fees deposits online via JazzCash TXN ID: " . $tran_id,
-                'date' => date("Y-m-d"),
+                'allocation_id'     => $params['allocation_id'],
+                'type_id'           => $params['type_id'],
+                'collect_by'        => 'online',
+                'amount'            => floatval($params['amount']),
+                'discount'          => 0,
+                'fine'              => $params['fine'],
+                'pay_via'           => 12,
+                'gateway_reference' => $tran_id,
+                'remarks'           => "Fees deposits online via JazzCash TXN ID: " . $tran_id,
+                'date'              => date("Y-m-d"),
             );
             $this->savePaymentData($arrayFees);
             set_alert('success', translate('payment_successfull'));
@@ -826,16 +830,16 @@ class Feespayment extends Admin_Controller
             if ($response->order_id == $params['orderID']) {
                 $tran_id = $response->transaction_id;
                 $arrayFees = array(
-                    'allocation_id' => $params['allocation_id'],
-                    'type_id' => $params['type_id'],
-                    'collect_by' => "",
-                    'amount' => $params['amount'],
-                    'discount' => 0,
-                    'fine' => $params['fine'],
-                    'pay_via' => 13,
-                    'collect_by' => 'online',
-                    'remarks' => "Fees deposits online via Midtrans TXN ID: " . $tran_id,
-                    'date' => date("Y-m-d"),
+                    'allocation_id'     => $params['allocation_id'],
+                    'type_id'           => $params['type_id'],
+                    'collect_by'        => 'online',
+                    'amount'            => $params['amount'],
+                    'discount'          => 0,
+                    'fine'              => $params['fine'],
+                    'pay_via'           => 13,
+                    'gateway_reference' => $tran_id,
+                    'remarks'           => "Fees deposits online via Midtrans TXN ID: " . $tran_id,
+                    'date'              => date("Y-m-d"),
                 );
                 $this->savePaymentData($arrayFees);
                 set_alert('success', translate('payment_successfull'));
@@ -908,16 +912,16 @@ class Feespayment extends Admin_Controller
             $result = json_decode($request, true);
             if ($result['status'] == 'success' && isset($result['data']['chargecode']) && ($result['data']['chargecode'] == '00' || $result['data']['chargecode'] == '0')) {
                 $arrayFees = array(
-                    'allocation_id' => $params['allocation_id'],
-                    'type_id' => $params['type_id'],
-                    'amount' => $params['amount'],
-                    'fine' => $params['fine'],
-                    'collect_by' => "",
-                    'discount' => 0,
-                    'pay_via' => 14,
-                    'collect_by' => 'online',
-                    'remarks' => "Fees deposits online via FlutterWave TXREF: " . $params['txref'],
-                    'date' => date("Y-m-d"),
+                    'allocation_id'     => $params['allocation_id'],
+                    'type_id'           => $params['type_id'],
+                    'amount'            => $params['amount'],
+                    'fine'              => $params['fine'],
+                    'collect_by'        => 'online',
+                    'discount'          => 0,
+                    'pay_via'           => 14,
+                    'gateway_reference' => $params['txref'],
+                    'remarks'           => "Fees deposits online via FlutterWave TXREF: " . $params['txref'],
+                    'date'              => date("Y-m-d"),
                 );
                 $this->savePaymentData($arrayFees);
                 set_alert('success', translate('payment_successfull'));
@@ -988,16 +992,16 @@ class Feespayment extends Admin_Controller
                 $tran_id = $_POST['TXNID'];
 
                 $arrayFees = array(
-                    'allocation_id' => $params['allocation_id'],
-                    'type_id' => $params['type_id'],
-                    'amount' => $params['amount'],
-                    'fine' => $params['fine'],
-                    'collect_by' => "",
-                    'discount' => 0,
-                    'pay_via' => 15,
-                    'collect_by' => 'online',
-                    'remarks' => "Fees deposits online via Paytm TXREF: " . $tran_id,
-                    'date' => date("Y-m-d"),
+                    'allocation_id'     => $params['allocation_id'],
+                    'type_id'           => $params['type_id'],
+                    'amount'            => $params['amount'],
+                    'fine'              => $params['fine'],
+                    'collect_by'        => 'online',
+                    'discount'          => 0,
+                    'pay_via'           => 15,
+                    'gateway_reference' => $tran_id,
+                    'remarks'           => "Fees deposits online via Paytm TXREF: " . $tran_id,
+                    'date'              => date("Y-m-d"),
                 );
                 $this->savePaymentData($arrayFees);
                 set_alert('success', translate('payment_successfull'));
@@ -1083,16 +1087,16 @@ class Feespayment extends Admin_Controller
             $params = $this->session->userdata('params');
             $this->session->set_userdata("params", "");
             $arrayFees = array(
-                'allocation_id' => $params['allocation_id'],
-                'type_id' => $params['type_id'],
-                'amount' => $params['amount'],
-                'fine' => $params['fine'],
-                'collect_by' => "",
-                'discount' => 0,
-                'pay_via' => 16,
-                'collect_by' => 'online',
-                'remarks' => "Fees deposits online via toyyibPay TXREF: " . $refno,
-                'date' => date("Y-m-d"),
+                'allocation_id'     => $params['allocation_id'],
+                'type_id'           => $params['type_id'],
+                'amount'            => $params['amount'],
+                'fine'              => $params['fine'],
+                'collect_by'        => 'online',
+                'discount'          => 0,
+                'pay_via'           => 16,
+                'gateway_reference' => $refno,
+                'remarks'           => "Fees deposits online via toyyibPay TXREF: " . $refno,
+                'date'              => date("Y-m-d"),
             );
             $this->savePaymentData($arrayFees);
         }
@@ -1170,16 +1174,16 @@ class Feespayment extends Admin_Controller
                 $params = $this->session->userdata('params');
                 $this->session->set_userdata("params", "");
                 $arrayFees = array(
-                    'allocation_id' => $params['allocation_id'],
-                    'type_id' => $params['type_id'],
-                    'collect_by' => "",
-                    'amount' => $params['amount'],
-                    'discount' => 0,
-                    'fine' => $params['fine'],
-                    'pay_via' => 18,
-                    'collect_by' => 'online',
-                    'remarks' => "Fees deposits online via Payhere TXN ID: " . $order_id,
-                    'date' => date("Y-m-d"),
+                    'allocation_id'     => $params['allocation_id'],
+                    'type_id'           => $params['type_id'],
+                    'collect_by'        => 'online',
+                    'amount'            => $params['amount'],
+                    'discount'          => 0,
+                    'fine'              => $params['fine'],
+                    'pay_via'           => 18,
+                    'gateway_reference' => $order_id,
+                    'remarks'           => "Fees deposits online via Payhere TXN ID: " . $order_id,
+                    'date'              => date("Y-m-d"),
                 );
                 $this->savePaymentData($arrayFees);
             }
@@ -1275,16 +1279,16 @@ class Feespayment extends Admin_Controller
             $myIdentifier = $params['myIdentifier'];
             if($status == "success" && $signature == $mySignature &&  $identifier ==  $myIdentifier){
                 $arrayFees = array(
-                    'allocation_id' => $params['allocation_id'],
-                    'type_id' => $params['type_id'],
-                    'collect_by' => "",
-                    'amount' => $params['amount'],
-                    'discount' => 0,
-                    'fine' => $params['fine'],
-                    'pay_via' => 19,
-                    'collect_by' => 'online',
-                    'remarks' => "Fees deposits online via Nepalste TXN ID: " . $identifier,
-                    'date' => date("Y-m-d"),
+                    'allocation_id'     => $params['allocation_id'],
+                    'type_id'           => $params['type_id'],
+                    'collect_by'        => 'online',
+                    'amount'            => $params['amount'],
+                    'discount'          => 0,
+                    'fine'              => $params['fine'],
+                    'pay_via'           => 19,
+                    'gateway_reference' => $identifier,
+                    'remarks'           => "Fees deposits online via Nepalste TXN ID: " . $identifier,
+                    'date'              => date("Y-m-d"),
                 );
                 $this->savePaymentData($arrayFees);
             }
@@ -1294,7 +1298,10 @@ class Feespayment extends Admin_Controller
     private function savePaymentData($data)
     {
         // insert in DB
-        $this->db->insert('fee_payment_history', $data);
+        $inserted = $this->db->insert('fee_payment_history', $data);
+        if (!$inserted) {
+            log_message('error', 'savePaymentData: insert failed — ' . json_encode($this->db->error()) . ' remarks=' . ($data['remarks'] ?? ''));
+        }
 
         // transaction voucher save function
         $getSeeting = $this->fees_model->get('transactions_links', array('branch_id' => get_loggedin_branch_id()), true);

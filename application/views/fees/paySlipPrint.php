@@ -73,11 +73,7 @@ $basic = $this->fees_model->getInvoiceBasic($studentID);
 						$total_paid = 0;
 						$total_balance = 0;
 						$total_amount = 0;
-			            $this->db->where_in('h.id', array_column($record_array, 'payment_id'));
-				        $this->db->select('h.*,t.name');
-				        $this->db->from('fee_payment_history as h');
-				        $this->db->join('fees_type as t', 't.id = h.type_id', 'left');
-			            $paymentHistory = $this->db->get()->result();
+						$paymentHistory = $this->fees_model->getPaySlipHistory(array_column($record_array, 'payment_id'));
 						foreach ($paymentHistory as $key => $row) {
 							$paid = $row->amount;
 							$discount = $row->discount;

@@ -590,7 +590,7 @@ function currencyFormat($amount = 0)
     } elseif ($currency_formats == 7) {
         $value = number_format($amount, 2, '.', ' ');
     } elseif ($currency_formats == 8) {
-        $value = $amount;
+        $value = number_format((float)$amount, 0, '.', ',');
     }
 
     if ($symbol_position == 1) {

@@ -379,7 +379,7 @@ $config['encryption_key'] = '038441bf4a184181f4f604358e88794a69650aa6bc79b41cb23
 */
 $config['sess_driver'] = 'database';
 $config['sess_cookie_name'] = 'rm_session';
-$config['sess_expiration'] = 7200;
+$config['sess_expiration'] = 28800;
 $config['sess_save_path'] = 'rm_sessions';
 $config['sess_match_ip'] = FALSE;
 $config['sess_time_to_update'] = 300;
@@ -451,7 +451,7 @@ $config['global_xss_filtering'] = TRUE;
 $config['csrf_protection'] = TRUE;
 $config['csrf_token_name'] = 'school_csrf_name';
 $config['csrf_cookie_name'] = 'school_cookie_name';
-$config['csrf_expire'] = 7200;
+$config['csrf_expire'] = 28800;
 $config['csrf_regenerate'] = FALSE;
 // Only the payment-gateway callback/return actions can legitimately arrive
 // without a CSRF token, since the request comes from the gateway (browser
@@ -464,6 +464,7 @@ $config['csrf_regenerate'] = FALSE;
 // instead of a second, parallel one.
 $config['csrf_exclude_uris'] = array(
     'paystack/webhook',
+    'qrcode_attendance/scan(/.*)?',
     '(feespayment|admissionpayment|onlineexam_payment|subscription|saas_payment)/'
         . '(getsuccesspayment|stripe_success|verify_paystack_payment|payumoney_success|razorpay_verify|'
         . 'sslcommerz_success|jazzcash_success|midtrans_success|verify_flutterwave_payment|paytm_success|'

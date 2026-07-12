@@ -84,20 +84,40 @@ class Dashboard_model extends CI_Model
     /* student annual attendance charts */
     public function getStudentAttendance($studentID = '')
     {
-        $total_present = array();
-        $total_absent = array();
-        $total_late = array();
-        $enrollID = $this->db->select('id')->where(['student_id' => $studentID, 'session_id' => get_session_id()])->get('enroll')->row()->id;
-        for ($month = 1; $month <= 12; $month++):
-            $total_present[] = $this->db->query("SELECT id FROM student_attendance WHERE MONTH(date) = " . $this->db->escape($month) . " AND YEAR(date) = YEAR(CURDATE()) AND status = 'P' AND enroll_id = " . $this->db->escape($enrollID))->num_rows();
-            $total_absent[] = $this->db->query("SELECT id FROM student_attendance WHERE MONTH(date) = " . $this->db->escape($month) . " AND YEAR(date) = YEAR(CURDATE()) AND status = 'A' AND enroll_id = " . $this->db->escape($enrollID))->num_rows();
-            $total_late[] = $this->db->query("SELECT id FROM student_attendance WHERE MONTH(date) = " . $this->db->escape($month) . " AND YEAR(date) = YEAR(CURDATE()) AND status = 'L' AND enroll_id = " . $this->db->escape($enrollID))->num_rows();
-        endfor;
-        return array(
+        $total_present = array_fill(0, 12, 0);
+        $total_absent  = array_fill(0, 12, 0);
+        $total_late    = array_fill(0, 12, 0);
+
+        $enroll = $this->db->select('id')
+            ->where(['student_id' => $studentID, 'session_id' => get_session_id()])
+            ->get('enroll')->row();
+        if (empty($enroll)) {
+            return ['total_present' => $total_present, 'total_absent' => $total_absent, 'total_late' => $total_late];
+        }
+
+        // Single aggregation query replacing the previous 36-query loop
+        $rows = $this->db->query(
+            "SELECT MONTH(date) AS m, status, COUNT(*) AS cnt
+             FROM student_attendance
+             WHERE enroll_id = " . $this->db->escape($enroll->id) . "
+               AND YEAR(date) = YEAR(CURDATE())
+               AND status IN ('P','A','L')
+               AND period_id IS NULL
+             GROUP BY MONTH(date), status"
+        )->result_array();
+
+        foreach ($rows as $row) {
+            $idx = (int)$row['m'] - 1;
+            if ($row['status'] === 'P') $total_present[$idx] = (int)$row['cnt'];
+            if ($row['status'] === 'A') $total_absent[$idx]  = (int)$row['cnt'];
+            if ($row['status'] === 'L') $total_late[$idx]    = (int)$row['cnt'];
+        }
+
+        return [
             'total_present' => $total_present,
-            'total_absent' => $total_absent,
-            'total_late' => $total_late,
-        );
+            'total_absent'  => $total_absent,
+            'total_late'    => $total_late,
+        ];
     }
 
     public function get_monthly_attachments($id = '')
@@ -110,38 +130,53 @@ class Dashboard_model extends CI_Model
         return $this->db->get()->num_rows();
     }
 
-    /* annual academic fees summary charts */
+    /* 7-day rolling attendance chart — 2 GROUP BY queries instead of 14 */
     public function getWeekendAttendance($branchID = '')
     {
-        $days = array();
-        $employee_att = array();
-        $student_att = array();
-        $now = new DateTime("6 days ago");
-        $interval = new DateInterval('P1D'); // 1 Day interval
-        $period = new DatePeriod($now, $interval, 6); // 7 Days
+        $days         = [];
+        $employee_att = [];
+        $student_att  = [];
+        $dates        = [];
+
+        $now      = new DateTime('6 days ago');
+        $interval = new DateInterval('P1D');
+        $period   = new DatePeriod($now, $interval, 6);
         foreach ($period as $day) {
-            $days[] = $day->format("d-M");
-            $this->db->select('id');
-            if (!empty($branchID)) {
-                $this->db->where('branch_id', $branchID);
-            }
-
-            $this->db->where('date = "' . $day->format('Y-m-d') . '" AND (status = "P" OR status = "L")');
-            $student_att[]['y'] = $this->db->get('student_attendance')->num_rows();
-
-            $this->db->select('id');
-            if (!empty($branchID)) {
-                $this->db->where('branch_id', $branchID);
-            }
-
-            $this->db->where('date = "' . $day->format('Y-m-d') . '" AND (status = "P" OR status = "L")');
-            $employee_att[]['y'] = $this->db->get('staff_attendance')->num_rows();
+            $days[]  = $day->format('d-M');
+            $dates[] = $day->format('Y-m-d');
         }
-        return array(
-            'days' => $days,
+
+        $placeholders = implode(',', array_map([$this->db, 'escape'], $dates));
+        $branchWhere  = !empty($branchID) ? ' AND branch_id = ' . $this->db->escape($branchID) : '';
+
+        $sRows = $this->db->query(
+            "SELECT DATE(date) AS day, COUNT(*) AS cnt
+             FROM student_attendance
+             WHERE date IN ($placeholders) AND status IN ('P','L')
+             $branchWhere
+             GROUP BY DATE(date)"
+        )->result_array();
+        $sMap = array_column($sRows, 'cnt', 'day');
+
+        $eRows = $this->db->query(
+            "SELECT DATE(date) AS day, COUNT(*) AS cnt
+             FROM staff_attendance
+             WHERE date IN ($placeholders) AND status IN ('P','L')
+             $branchWhere
+             GROUP BY DATE(date)"
+        )->result_array();
+        $eMap = array_column($eRows, 'cnt', 'day');
+
+        foreach ($dates as $d) {
+            $student_att[]  = ['y' => (int)($sMap[$d] ?? 0)];
+            $employee_att[] = ['y' => (int)($eMap[$d] ?? 0)];
+        }
+
+        return [
+            'days'         => $days,
             'employee_att' => $employee_att,
-            'student_att' => $student_att,
-        );
+            'student_att'  => $student_att,
+        ];
     }
 
     /* monthly academic cash book transaction charts */
@@ -258,5 +293,63 @@ class Dashboard_model extends CI_Model
           'punjabi' => 'pa',
         );
         return empty($codes[$lang]) ? '' : $codes[$lang];
+    }
+
+    /**
+     * Summary of today's attendance across all classes.
+     * Returns overall totals + per-class breakdown in one query.
+     */
+    public function getTodayAttendanceSummary($branchID = '')
+    {
+        $today     = date('Y-m-d');
+        $sessionID = get_session_id();
+
+        $branchCond = !empty($branchID) ? ' AND e.branch_id = ' . $this->db->escape($branchID) : '';
+
+        $sql = "SELECT
+                    c.name  AS class_name,
+                    sec.name AS section_name,
+                    COUNT(DISTINCT e.id) AS enrolled,
+                    COUNT(DISTINCT sa.id) AS marked,
+                    SUM(CASE WHEN sa.status IN ('P','L') THEN 1
+                             WHEN sa.status = 'HD'       THEN 0.5
+                             ELSE 0 END) AS present_count
+                FROM enroll e
+                INNER JOIN class c      ON c.id   = e.class_id
+                INNER JOIN section sec  ON sec.id  = e.section_id
+                LEFT JOIN student_attendance sa
+                    ON sa.enroll_id = e.id
+                   AND sa.date      = " . $this->db->escape($today) . "
+                   AND sa.period_id IS NULL
+                WHERE e.session_id = " . $this->db->escape($sessionID) . "
+                $branchCond
+                GROUP BY e.class_id, e.section_id
+                ORDER BY c.name, sec.name";
+
+        $rows = $this->db->query($sql)->result_array();
+
+        $totalEnrolled = 0;
+        $totalMarked   = 0;
+        $totalPresent  = 0.0;
+
+        foreach ($rows as &$row) {
+            $totalEnrolled += (int)$row['enrolled'];
+            $totalMarked   += (int)$row['marked'];
+            $totalPresent  += (float)$row['present_count'];
+            $row['pct'] = (int)$row['marked'] > 0
+                ? round(((float)$row['present_count'] / (int)$row['marked']) * 100)
+                : null;
+        }
+        unset($row);
+
+        return [
+            'by_class'       => $rows,
+            'total_enrolled' => $totalEnrolled,
+            'total_marked'   => $totalMarked,
+            'total_present'  => $totalPresent,
+            'overall_pct'    => $totalMarked > 0
+                ? round(($totalPresent / $totalMarked) * 100)
+                : null,
+        ];
     }
 }

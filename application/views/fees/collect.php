@@ -361,7 +361,9 @@ if ($extINTL == true) {
 											<?php
 												if ($row['collect_by'] == 'online') {
 													echo translate('online');
-												}else{
+												} elseif ($row['collect_by'] == 'wallet') {
+													echo "DVA Wallet";
+												} else {
 													echo get_type_name_by_id('staff', $row['collect_by']);
 												}
 											?>

@@ -70,120 +70,128 @@
 		</header>
 		<div class="panel-body">
 			<style type="text/css">
-				table.dataTable.table-condensed > thead > tr > th {
-				  padding-right: 3px !important;
-				}
+				table.dataTable.table-condensed > thead > tr > th { padding-right: 3px !important; }
 			</style>
-			<!-- hidden school information prints -->
-			<div class="export_title">Monthly Attendance Sheet on <?=date("F Y", strtotime($year.'-'.$month)); ?> <?php 
-				echo translate('class') .' : '. get_type_name_by_id('class', $class_id);
-				echo ' ( ' .translate('section'). ' : ' .get_type_name_by_id('section', $section_id).' )';
-				?></div>
+			<div class="export_title">Monthly Attendance Sheet — <?=date("F Y", strtotime($year.'-'.$month))?> <?php
+				echo translate('class') . ' : ' . get_type_name_by_id('class', $class_id);
+				echo ' (' . translate('section') . ' : ' . get_type_name_by_id('section', $section_id) . ')';
+			?></div>
+
 			<div class="row mt-sm">
-				<div class="col-md-offset-8 col-md-4">
+				<div class="col-md-offset-6 col-md-6">
 					<table class="table table-condensed table-bordered text-dark text-center">
 						<tbody>
 							<tr>
-								<td><strong>Weekends :</strong> W<span class="visible-print">W</span></td>
-								<td><strong>Present :</strong> <i class="far fa-check-circle hidden-print text-success"></i><span class="visible-print">P</span></td>
-								<td><strong>Absent : </strong> <i class="far fa-times-circle hidden-print text-danger"></i><span class="visible-print">A</span></td>
-								<td><strong>Holiday : </strong> <i class="fas fa-hospital-symbol hidden-print text-info"></i><span class="visible-print">H</span></td>
-								<td><strong>Late : </strong> <i class="far fa-clock hidden-print text-tertiary"></i><span class="visible-print">L</span></td>
-								<td><strong>Half Day : </strong> <i class="fas fa-star-half-alt text-tertiary"></i><span class="visible-print">HD</span></td>
+								<td><strong>W:</strong> Weekend</td>
+								<td><strong><i class="far fa-check-circle text-success hidden-print"></i><span class="visible-print">P</span></strong> Present</td>
+								<td><strong><i class="far fa-times-circle text-danger hidden-print"></i><span class="visible-print">A</span></strong> Absent</td>
+								<td><strong><i class="fas fa-hospital-symbol text-info hidden-print"></i><span class="visible-print">H</span></strong> Holiday</td>
+								<td><strong><i class="far fa-clock text-warning hidden-print"></i><span class="visible-print">L</span></strong> Late</td>
+								<td><strong><i class="fas fa-star-half-alt text-tertiary hidden-print"></i><span class="visible-print">HD</span></strong> Half Day</td>
+								<td><strong><i class="fas fa-user-check text-primary hidden-print"></i><span class="visible-print">EA</span></strong> Excused</td>
 							</tr>
 						</tbody>
 					</table>
 				</div>
 			</div>
+
 			<div class="row">
 				<div class="col-md-12">
 					<div class="mb-lg">
+						<div class="table-responsive">
 						<table class="table table-bordered table-hover table-condensed mb-none text-dark table-export">
 							<thead>
 								<tr>
 									<th><?=translate('student_name')?></th>
 <?php
-$weekends = $this->attendance_model->getWeekendDaysSession($branch_id);
-$getHolidays = $this->attendance_model->getHolidays($branch_id);
-$getHolidays = explode('","', $getHolidays);
-for($i = 1; $i <= $days; $i++){
-$date = date('Y-m-d', strtotime($year . '-' . $month . '-' . $i));
+// Weekend days as day-of-week integers — used for column highlighting
+$weekendNums   = array_map('intval', array_filter(explode(',', $this->application_model->getWeekends($branch_id)), 'strlen'));
+$getHolidays   = $this->attendance_model->getHolidaysArray($branch_id);
+
+for ($i = 1; $i <= $days; $i++) {
+    $date    = date('Y-m-d', strtotime($year . '-' . $month . '-' . $i));
+    $dowNum  = (int)date('w', strtotime($date));
+    $isWkend = in_array($dowNum, $weekendNums, true);
 ?>
-									<th <?php if(in_array($date, $weekends)) { echo "style='background-color: #f99'"; } ?> class="text-center no-sort"><?php echo date('D', strtotime($date)); ?> <br> <?php echo date('d', strtotime($date)); ?></th>
+									<th <?php if ($isWkend) echo "style='background-color:#f99'"; ?> class="text-center no-sort">
+										<?=date('D', strtotime($date))?><br><?=date('d', strtotime($date))?>
+									</th>
 <?php } ?>
-									<th class="text-center" style="padding-right: 15px !important;">(%)</th>
-									<th class="text-center" style="padding-right: 15px !important;">W</th>
-									<th class="text-center text-success" style="padding-right: 15px !important;">P</th>
-									<th class="text-center text-danger" style="padding-right: 15px !important;">A</th>
-									<th class="text-center text-tertiary" style="padding-right: 15px !important;">L</th>
-									<th class="text-center text-tertiary">HD</th>
+									<th class="text-center" style="padding-right:15px !important;">(%)</th>
+									<th class="text-center" style="padding-right:15px !important;">W</th>
+									<th class="text-center text-success" style="padding-right:15px !important;">P</th>
+									<th class="text-center text-danger" style="padding-right:15px !important;">A</th>
+									<th class="text-center text-warning" style="padding-right:15px !important;">L</th>
+									<th class="text-center text-tertiary" style="padding-right:15px !important;">HD</th>
+									<th class="text-center text-primary">EA</th>
 								</tr>
 							</thead>
 							<tbody>
 <?php
 foreach ($studentlist as $row):
-$total_present = 0;
-$total_absent = 0;
-$total_late = 0;
-$total_half_day = 0;
-$total_weekends = 0;
-$studentID = $row['enroll_id'];
+    $total_present  = 0;
+    $total_absent   = 0;
+    $total_late     = 0;
+    $total_half_day = 0;
+    $total_excused  = 0;
+    $total_weekends = 0;
+    $enrollID       = $row['enroll_id'];
+    // Pull from pre-loaded batch map — O(1) lookup, no extra DB query
+    $enrollMap      = $attendance_map[$enrollID] ?? [];
 ?>
 								<tr>
-									<td><?php echo $row['first_name'] . ' ' . $row['last_name']; ?> <div class="visible-print"> / <?php echo translate('register_no') . " " .  $row['register_no'] ?></div></td>
+									<td><?=html_escape($row['first_name'] . ' ' . $row['last_name'])?> <div class="visible-print"> / <?=translate('register_no') . ' ' . $row['register_no']?></div></td>
 <?php
-for ($i = 1; $i <= $days; $i++) { 
-$date = date('Y-m-d', strtotime($year . '-' . $month . '-' . $i));
-$atten = $this->attendance_model->get_attendance_by_date($studentID, $date);
+for ($i = 1; $i <= $days; $i++) {
+    $date    = date('Y-m-d', strtotime($year . '-' . $month . '-' . $i));
+    $dowNum  = (int)date('w', strtotime($date));
+    $isWkend = in_array($dowNum, $weekendNums, true);
+    $isHol   = in_array($date, $getHolidays, true);
+    $atten   = $enrollMap[$date] ?? null;
 ?>
-							<td class="center">
-<?php if (!empty($atten)) { ?>
-								<span data-toggle="popover" data-trigger="hover" data-placement="top" data-trigger="hover" data-content="<?php echo $atten['remark']; ?>">
-<?php if ($atten['status'] == 'A') { $total_absent++; ?>
-									<i class="far fa-times-circle text-danger"></i><span class="visible-print">A</span>
-<?php } if ($atten['status'] == 'P') { $total_present++; ?>
-									<i class="far fa-check-circle text-success"></i><span class="visible-print">P</span>
-<?php } if ($atten['status'] == 'L') { $total_late++; ?>
-									<i class="far fa-clock text-info"></i><span class="visible-print">L</span>
-<?php } if ($atten['status'] == 'H'){ ?>
-									<i class="fas fa-hospital-symbol text-tertiary"></i><span class="visible-print">H</span>
-<?php } if ($atten['status'] == 'HD'){ $total_half_day++; ?>
-									<i class="fas fa-star-half-alt text-tertiary"></i><span class="visible-print">HD</span>
+								<td class="center">
+<?php if ($atten !== null): ?>
+									<span data-toggle="popover" data-trigger="hover" data-placement="top" data-content="<?=html_escape($atten['remark'])?>">
+<?php
+    switch ($atten['status']) {
+        case 'A':  $total_absent++;   echo '<i class="far fa-times-circle text-danger"></i><span class="visible-print">A</span>'; break;
+        case 'P':  $total_present++;  echo '<i class="far fa-check-circle text-success"></i><span class="visible-print">P</span>'; break;
+        case 'L':  $total_late++;     echo '<i class="far fa-clock text-warning"></i><span class="visible-print">L</span>'; break;
+        case 'HD': $total_half_day++; echo '<i class="fas fa-star-half-alt text-tertiary"></i><span class="visible-print">HD</span>'; break;
+        case 'EA': $total_excused++;  echo '<i class="fas fa-user-check text-primary"></i><span class="visible-print">EA</span>'; break;
+        case 'H':                     echo '<i class="fas fa-hospital-symbol text-info"></i><span class="visible-print">H</span>'; break;
+    }
+?>
+									</span>
+<?php elseif ($isHol): ?>
+									<i class="fas fa-hospital-symbol text-info"></i><span class="visible-print">H</span>
+<?php elseif ($isWkend): ?>
+									<?php $total_weekends++; ?><span class="text-success">W</span>
+<?php endif; ?>
+								</td>
 <?php } ?>
-								</span>
-<?php } else {
-
-	if(in_array($date, $getHolidays)) {
-		echo '<i class="fas fa-hospital-symbol text-tertiary"></i><span class="visible-print">H</span>';
-	} else {
-		if(in_array($date, $weekends)) {
-			$total_weekends++;
-			echo '<span class="text-success">W</span>';
-		}
-	}
-} ?>
-							</td>
-<?php } ?>
-									<td class="center"><?php 
-									$total_working_days = ($total_present + $total_absent + $total_late + $total_half_day);
-									if ($total_working_days == 0) {
-										echo "-";
-									} else {
-										$total_present = ($total_present + $total_late + $total_half_day);
-										$percentage = ($total_present / $total_working_days) * 100;
-										echo round($percentage);
-									}
-
+									<?php
+									// Attendance % formula:
+									// Numerator:   P + L + (HD × 0.5)   — EA excluded (authorised, not penalised)
+									// Denominator: P + A + L + (HD × 0.5) — EA excluded from working day count
+									$working_num  = $total_present + $total_late + ($total_half_day * 0.5);
+									$working_den  = $total_present + $total_absent + $total_late + ($total_half_day * 0.5);
+									?>
+									<td class="center"><?php
+										if ($working_den == 0) { echo '-'; }
+										else { echo round(($working_num / $working_den) * 100); }
 									?></td>
 									<td class="center"><?=$total_weekends?></td>
 									<td class="center"><?=$total_present?></td>
 									<td class="center"><?=$total_absent?></td>
 									<td class="center"><?=$total_late?></td>
 									<td class="center"><?=$total_half_day?></td>
-									<?php endforeach; ?>
+									<td class="center"><?=$total_excused?></td>
 								</tr>
+<?php endforeach; ?>
 							</tbody>
 						</table>
+						</div>
 					</div>
 				</div>
 			</div>

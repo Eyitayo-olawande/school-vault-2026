@@ -76,6 +76,8 @@
                             <th><?=translate('dva_account_number')?></th>
                             <th><?=translate('dva_customer_id')?></th>
                             <th><?=translate('dva_account_bank')?></th>
+                            <th><?=translate('total_received')?></th>
+                            <th><?=translate('last_payment_date')?></th>
                             <th><?=translate('parent')?></th>
                             <th><?=translate('student')?></th>
                         </tr>
@@ -98,6 +100,8 @@
                             <td><?php echo $row['account_number'];?></td>
                             <td><?php echo $row['customer_id'];?></td>
                             <td><?php echo $row['dedicated_account_bank'];?></td>
+                            <td><?php echo currencyFormat($row['total_received']);?></td>
+                            <td><?php echo !empty($row['last_payment_date']) ? _d($row['last_payment_date']) : '—';?></td>
                             <td><?php echo $row['parent_login'];?></td>
                             <td><?php echo $row['student_login'];?></td>
                         </tr>
@@ -109,95 +113,3 @@
         <?php endif;?>
     </div>
 </div>
-
-<div class="zoom-anim-dialog modal-block modal-block-primary mfp-hide" id="quickView">
-    <section class="panel">
-        <header class="panel-heading">
-            <h4 class="panel-title">
-                <i class="fa-solid fa-lock-open"></i> <?=translate('reset_password')?>
-            </h4>
-        </header>
-        <div class="panel-body">
-            <section class="panel pg-fw">
-                <div class="panel-body">
-                    <h5 class="chart-title mb-xs">
-                        <?=translate('student') . " " . translate('change') . " " . translate('password')?></h5>
-                    <div class="mt-lg">
-                        <?php echo form_open('student/password_reset/student', array('class' => 'frm-submit'));?>
-                        <input type="hidden" name="student_id" id="studentID" value="">
-                        <div class="form-group">
-                            <label class="control-label"><?php echo translate('new_password'); ?> <span
-                                    class="required">*</span></label>
-                            <input type="password" class="form-control" name="new_password" value=""
-                                aria-autocomplete="list">
-                            <span class="error"></span>
-                        </div>
-                        <div class="form-group">
-                            <label class="control-label"><?php echo translate('confirm_password'); ?> <span
-                                    class="required">*</span></label>
-                            <input type="password" class="form-control" name="confirm_password" value="">
-                            <span class="error"></span>
-                        </div>
-
-                        <div class="row">
-                            <div class="col-md-12 text-right">
-                                <button type="submit" class="btn btn btn-default"
-                                    data-loading-text="<i class='fas fa-spinner fa-spin'></i> Processing"><i
-                                        class="fas fa-plus-circle"></i> <?php echo translate('update'); ?></button>
-                            </div>
-                        </div>
-                        <?php echo form_close(); ?>
-                    </div>
-                </div>
-            </section>
-            <section class="panel pg-fw">
-                <div class="panel-body">
-                    <h5 class="chart-title mb-xs">
-                        <?=translate('parent') . " " . translate('change') . " " . translate('password')?></h5>
-                    <div class="mt-lg">
-                        <?php echo form_open('student/password_reset/parent', array('class' => 'frm-submit'));?>
-                        <input type="hidden" name="parent_id" id="parentID" value="">
-                        <div class="form-group">
-                            <label class="control-label"><?php echo translate('new_password'); ?> <span
-                                    class="required">*</span></label>
-                            <input type="password" class="form-control" name="new_password" value="" autocomplete="off">
-                            <span class="error"></span>
-                        </div>
-                        <div class="form-group">
-                            <label class="control-label"><?php echo translate('confirm_password'); ?> <span
-                                    class="required">*</span></label>
-                            <input type="password" class="form-control" name="confirm_password" value=""
-                                autocomplete="off">
-                            <span class="error"></span>
-                        </div>
-                        <div class="row">
-                            <div class="col-md-12 text-right">
-                                <button type="submit" class="btn btn btn-default"
-                                    data-loading-text="<i class='fas fa-spinner fa-spin'></i> Processing"><i
-                                        class="fas fa-plus-circle"></i> Update</button>
-                            </div>
-                        </div>
-                        <?php echo form_close(); ?>
-                    </div>
-                </div>
-            </section>
-        </div>
-        <footer class="panel-footer">
-            <div class="row">
-                <div class="col-md-12 text-right">
-                    <button class="btn btn-default modal-dismiss"><?=translate('close')?></button>
-                </div>
-            </div>
-        </footer>
-    </section>
-</div>
-
-<script type="text/javascript">
-function studentQuickView(studentID, parentID) {
-    $('#quickView').find("input[type=password], textarea").val("");
-    $('#quickView').find(".error").html("");
-    $('#studentID').val(studentID);
-    $('#parentID').val(parentID);
-    mfp_modal('#quickView');
-}
-</script>

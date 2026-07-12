@@ -37,8 +37,8 @@
 							<td><?php echo $count++; ?></td>
 							<td><?php echo get_type_name_by_id('branch', html_escape($row['branch_id']));?></td>
 							<td><?php echo $row['name']; ?></td>
-							<td><?php echo $global_config['currency_symbol'] . $row['basic_salary']; ?></td>
-							<td><?php echo $row['overtime_salary']; ?></td>
+							<td><?php echo currencyFormat($row['basic_salary']); ?></td>
+							<td><?php echo currencyFormat($row['overtime_salary']); ?></td>
 							<td>
 								<a href="javascript:void(0);" class="btn btn-circle icon btn-default" data-toggle="tooltip"
 								data-original-title="<?php echo translate('view'); ?>" onclick="getSalaryTemplate('<?php echo html_escape($row['id']); ?>')">

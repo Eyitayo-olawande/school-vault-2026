@@ -78,7 +78,7 @@
                                     <td><?php echo $row->department_name; ?></td>
                                     <td><?php echo $row->mobileno; ?></td>
                                     <td><?php echo $row->template_name; ?></td>
-                                    <td><?php echo $global_config['currency_symbol'] . $row->basic_salary; ?></td>
+                                    <td><?php echo currencyFormat($row->basic_salary); ?></td>
                                     <td>
                                         <?php
                                             $labelMode = '';

@@ -1,6 +1,7 @@
 <?php
-$widget = (is_superadmin_loggedin() ? 3 : 4);
 $currency_symbol = $global_config['currency_symbol'];
+$selSessID = (int)set_value('session_id', $active_session);
+$selTerm   = set_value('term', '');
 ?>
 <div class="row">
 	<div class="col-md-12">
@@ -11,8 +12,8 @@ $currency_symbol = $global_config['currency_symbol'];
 			<?php echo form_open($this->uri->uri_string(), array('class' => 'validate'));?>
 			<div class="panel-body">
 				<div class="row mb-sm">
-				<?php if (is_superadmin_loggedin() ): ?>
-					<div class="col-md-3">
+				<?php if (is_superadmin_loggedin()): ?>
+					<div class="col-md-2">
 						<div class="form-group">
 							<label class="control-label"><?=translate('branch')?> <span class="required">*</span></label>
 							<?php
@@ -23,17 +24,50 @@ $currency_symbol = $global_config['currency_symbol'];
 						</div>
 					</div>
 				<?php endif; ?>
-					<div class="col-md-<?php echo $widget; ?> mb-sm">
+					<div class="col-md-2 mb-sm">
 						<div class="form-group">
 							<label class="control-label"><?=translate('class')?></label>
 							<?php
 								$arrayClass = $this->app_lib->getClass($branch_id);
-								echo form_dropdown("class_id", $arrayClass, set_value('class_id'), "class='form-control' id='class_id'
-								data-plugin-selectTwo data-width='100%' data-minimum-results-for-search='Infinity' ");
+								echo form_dropdown("class_id", $arrayClass, set_value('class_id'), "class='form-control' id='class_id' onchange='getSectionByClass(this.value,0)'
+								data-plugin-selectTwo data-width='100%' data-minimum-results-for-search='Infinity'");
 							?>
 						</div>
 					</div>
-					<div class="col-md-<?php echo $widget; ?> mb-sm">
+					<div class="col-md-2 mb-sm">
+						<div class="form-group">
+							<label class="control-label"><?=translate('section')?></label>
+							<?php
+								$arraySection = $this->app_lib->getSections(set_value('class_id'), false);
+								echo form_dropdown("section_id", $arraySection, set_value('section_id'), "class='form-control' id='section_id'
+								data-plugin-selectTwo data-width='100%' data-minimum-results-for-search='Infinity'");
+							?>
+						</div>
+					</div>
+					<div class="col-md-2 mb-sm">
+						<div class="form-group">
+							<label class="control-label">Academic Session</label>
+							<select name="session_id" class="form-control"
+								data-plugin-selectTwo data-width="100%" data-minimum-results-for-search="Infinity">
+								<?php foreach ($session_list as $sid => $lbl): ?>
+									<option value="<?=$sid?>" <?=($sid == $selSessID) ? 'selected' : ''?>><?=htmlspecialchars($lbl)?></option>
+								<?php endforeach; ?>
+							</select>
+						</div>
+					</div>
+					<div class="col-md-2 mb-sm">
+						<div class="form-group">
+							<label class="control-label">Academic Term</label>
+							<select name="term" class="form-control"
+								data-plugin-selectTwo data-width="100%" data-minimum-results-for-search="Infinity">
+								<option value="" <?=empty($selTerm) ? 'selected' : ''?>>All Terms</option>
+								<option value="1ST TERM" <?=($selTerm === '1ST TERM') ? 'selected' : ''?>>1st Term</option>
+								<option value="2ND TERM" <?=($selTerm === '2ND TERM') ? 'selected' : ''?>>2nd Term</option>
+								<option value="3RD TERM" <?=($selTerm === '3RD TERM') ? 'selected' : ''?>>3rd Term</option>
+							</select>
+						</div>
+					</div>
+					<div class="col-md-2 mb-sm">
 						<div class="form-group">
 							<label class="control-label"><?=translate('payment_via')?> <span class="required">*</span></label>
 							<?php
@@ -44,16 +78,18 @@ $currency_symbol = $global_config['currency_symbol'];
 									'cash' => "Cash",
 								);
 								echo form_dropdown("payment_via", $arrayVia, set_value('payment_via'), "class='form-control' required
-								data-plugin-selectTwo data-width='100%' data-minimum-results-for-search='Infinity' ");
+								data-plugin-selectTwo data-width='100%' data-minimum-results-for-search='Infinity'");
 							?>
 						</div>
 					</div>
-					<div class="col-md-<?php echo $widget; ?> mb-sm">
+				</div>
+				<div class="row mb-sm">
+					<div class="col-md-4">
 						<div class="form-group">
-							<label class="control-label"><?php echo translate('date'); ?> <span class="required">*</span></label>
+							<label class="control-label"><?=translate('date')?> <span class="required">*</span></label>
 							<div class="input-group">
 								<span class="input-group-addon"><i class="fas fa-calendar-check"></i></span>
-								<input type="text" class="form-control daterange" name="daterange" value="<?php echo set_value('daterange', date("Y/m/d") . ' - ' . date("Y/m/d")); ?>" required />
+								<input type="text" class="form-control daterange" name="daterange" value="<?=set_value('daterange', date('Y/m/d') . ' - ' . date('Y/m/d'))?>" required />
 							</div>
 						</div>
 					</div>
@@ -71,7 +107,18 @@ $currency_symbol = $global_config['currency_symbol'];
 <?php if (isset($invoicelist)): ?>
 		<section class="panel appear-animation" data-appear-animation="<?php echo $global_config['animations'];?>" data-appear-animation-delay="100">
 			<header class="panel-heading">
-				<h4 class="panel-title"><i class="fas fa-list-ol"></i> <?=translate('fees_payment_history');?></h4>
+				<h4 class="panel-title"><i class="fas fa-list-ol"></i> <?=translate('fees_payment_history');?>
+					<div class="panel-btn">
+						<a href="<?php
+							$dr = explode(' - ', set_value('daterange', date('Y/m/d').' - '.date('Y/m/d')));
+							$s = date('Y-m-d', strtotime($dr[0]));
+							$e = date('Y-m-d', strtotime($dr[1] ?? $dr[0]));
+							echo base_url('fees/export_payment_history_csv?class_id='.set_value('class_id').'&payment_via='.set_value('payment_via').'&start='.$s.'&end='.$e);
+						?>" class="btn btn-xs btn-default btn-circle">
+							<i class="fas fa-file-csv"></i> CSV Export
+						</a>
+					</div>
+				</h4>
 			</header>
 			<div class="panel-body">
 				<div class="mb-md mt-md">
@@ -97,16 +144,8 @@ $currency_symbol = $global_config['currency_symbol'];
 						<tbody>
 							<?php
 							$count = 1;
-							$totalamount = 0;
-							$totaldiscount = 0;
-							$totalfine = 0;
-							$total = 0;
 							foreach($invoicelist as $row):
-								$totalamount += $row['amount'];
-								$totaldiscount += $row['discount'];
-								$totalfine += $row['fine'];
 								$totalp = ($row['amount'] + $row['fine']) - $row['discount'];
-								$total += $totalp;
 								?>
 							<tr>
 								<td><?php echo $count++; ?></td>
@@ -115,9 +154,11 @@ $currency_symbol = $global_config['currency_symbol'];
 								<td><?php echo $row['roll'];?></td>
 								<td><?php echo _d($row['date']);?></td>
 								<td><?php echo $row['class_name'] ." (" . $row['section_name'] . ")";?></td>
-								<td><?php 
-								if($row['collect_by'] == 'online'){
+								<td><?php
+								if ($row['collect_by'] == 'online') {
 									echo "Online";
+								} elseif ($row['collect_by'] == 'wallet') {
+									echo "DVA Wallet";
 								} else {
 									echo get_type_name_by_id('staff', $row['collect_by']);
 								} ?></td>
@@ -142,10 +183,10 @@ $currency_symbol = $global_config['currency_symbol'];
 								<th></th>
 								<th></th>
 								<th></th>
-								<th><?php echo (currencyFormat($totalamount)); ?></th>
-								<th><?php echo (currencyFormat($totaldiscount)); ?></th>
-								<th><?php echo (currencyFormat($totalfine)); ?></th>
-								<th><?php echo (currencyFormat($total)); ?></th>
+								<th id="ph-total-amount"><?php echo isset($totals) ? currencyFormat($totals['amount']) : '—'; ?></th>
+								<th id="ph-total-discount"><?php echo isset($totals) ? currencyFormat($totals['discount']) : '—'; ?></th>
+								<th id="ph-total-fine"><?php echo isset($totals) ? currencyFormat($totals['fine']) : '—'; ?></th>
+								<th id="ph-total-net"><?php echo isset($totals) ? currencyFormat($totals['net']) : '—'; ?></th>
 							</tr>
 						</tfoot>
 					</table>

@@ -49,17 +49,24 @@ class Offline_payments_model extends MY_Model
     public function update($id = '')
     {
         $r = $this->db->where('id', $id)->get('offline_fees_payments')->row();
+        $remarks = "Fees deposits via offline Payments Trx ID: " . $id;
+
+        // Idempotency: skip if this offline payment was already applied
+        $already = $this->db->where('remarks', $remarks)->count_all_results('fee_payment_history');
+        if ($already > 0) {
+            return;
+        }
+
         $arrayFees = array(
             'allocation_id' => $r->fees_allocation_id,
-            'type_id' => $r->fees_type_id,
-            'amount' => $r->amount,
-            'fine' => $r->fine,
-            'collect_by' => "",
-            'discount' => 0,
-            'pay_via' => 15,
-            'collect_by' => 'online',
-            'remarks' => "Fees deposits via offline Payments Trx ID: " . $id,
-            'date' => date("Y-m-d"),
+            'type_id'       => $r->fees_type_id,
+            'amount'        => $r->amount,
+            'fine'          => $r->fine,
+            'collect_by'    => get_loggedin_user_id(),
+            'discount'      => 0,
+            'pay_via'       => 15,
+            'remarks'       => $remarks,
+            'date'          => date("Y-m-d"),
         );
         // insert in DB
         $this->db->insert('fee_payment_history', $arrayFees);

@@ -1,16 +1,6 @@
 <?php
 defined('BASEPATH') or exit('No direct script access allowed');
 
-/**
- * @package : Ramom school management system
- * @version : 6.0
- * @developed by : RamomCoder
- * @support : ramomcoder@yahoo.com
- * @author url : http://codecanyon.net/user/RamomCoder
- * @filename : Attendance.php
- * @copyright : Reserved RamomCoder Team
- */
-
 class Attendance extends Admin_Controller
 {
     public function __construct()
@@ -33,7 +23,6 @@ class Attendance extends Admin_Controller
         }
     }
 
-    // student submitted attendance all data are prepared and stored in the database here
     public function student_entry()
     {
         if (!get_permission('student_attendance', 'is_add')) {
@@ -45,69 +34,110 @@ class Attendance extends Admin_Controller
             if (is_superadmin_loggedin()) {
                 $this->form_validation->set_rules('branch_id', translate('branch'), 'required');
             }
-            $this->form_validation->set_rules('class_id', translate('class'), 'required');
+            $this->form_validation->set_rules('class_id',   translate('class'),   'required');
             $this->form_validation->set_rules('section_id', translate('section'), 'required');
-            $this->form_validation->set_rules('date', translate('date'), 'trim|required|callback_check_weekendday|callback_check_holiday|callback_get_valid_date');
+            $this->form_validation->set_rules('date', translate('date'), 'trim|required|callback_check_backdate_limit|callback_check_weekendday|callback_check_holiday|callback_get_valid_date');
             if ($this->form_validation->run() == true) {
-                $classID = $this->input->post('class_id');
+                $classID   = $this->input->post('class_id');
                 $sectionID = $this->input->post('section_id');
-                $date = $this->input->post('date');
-                $this->data['date'] = $date;
+                $date      = $this->input->post('date');
+                $this->data['date']         = $date;
                 $this->data['attendencelist'] = $this->attendance_model->getStudentAttendence($classID, $sectionID, $date, $branchID);
+
+                // Load timetable periods for the selected day so the view can show an optional period picker
+                $dayName = date('l', strtotime($date));
+                $this->data['periods'] = $this->attendance_model->getPeriodsForClassDay($classID, $sectionID, $dayName, $branchID);
             }
         }
-        $this->data['getWeekends'] = $this->application_model->getWeekends($branchID);
-        $this->data['getHolidays'] = $this->attendance_model->getHolidays($branchID);
+        $this->data['getWeekends']  = $this->application_model->getWeekends($branchID);
+        $this->data['getHolidays']  = $this->attendance_model->getHolidays($branchID);
+
         if (isset($_POST['save'])) {
             $attendance = $this->input->post('attendance');
-            $date = $this->input->post('date');
+            $date       = $this->input->post('date');
+            $periodID   = $this->input->post('period_id') ?: null;
+            $actorID    = get_loggedin_id();
+
+            $this->db->trans_start();
             foreach ($attendance as $key => $value) {
-                $attStatus = (isset($value['status']) ? $value['status'] : "");
-                $studentID = $value['student_id'];
-                $arrayAttendance = array(
-                    'enroll_id' => $value['enroll_id'],
-                    'status' => $attStatus,
-                    'remark' => $value['remark'],
-                    'date' => $date,
-                    'branch_id' => $branchID,
-                );
+                $attStatus  = $value['status'] ?? '';
+                $studentID  = $value['student_id'];
+                $arrayAttendance = [
+                    'enroll_id'  => $value['enroll_id'],
+                    'period_id'  => $periodID,
+                    'status'     => $attStatus,
+                    'remark'     => $value['remark'],
+                    'date'       => $date,
+                    'branch_id'  => $branchID,
+                ];
+
                 if (empty($value['attendance_id'])) {
+                    $arrayAttendance['created_by'] = $actorID;
                     $this->db->insert('student_attendance', $arrayAttendance);
                 } else {
                     $this->db->where('id', $value['attendance_id']);
-                    $this->db->update('student_attendance', array('status' => $attStatus, 'remark' => $value['remark']));
+                    $this->db->update('student_attendance', [
+                        'status'     => $attStatus,
+                        'remark'     => $value['remark'],
+                        'updated_by' => $actorID,
+                        'updated_at' => date('Y-m-d H:i:s'),
+                    ]);
                 }
-                // send student absent then sms
-                if ($attStatus == 'A') {
+
+                // Queue SMS for Absent, Late, and Half Day (template IDs: 3=absent, 11=late, 12=half-day)
+                $smsTemplateMap = ['A' => 3, 'L' => 11, 'HD' => 12];
+                if (isset($smsTemplateMap[$attStatus])) {
                     $arrayAttendance['student_id'] = $studentID;
-                    $this->sms_model->send_sms($arrayAttendance, 3);
+                    $this->_queue_attendance_sms($arrayAttendance, $smsTemplateMap[$attStatus]);
                 }
             }
-            set_alert('success', translate('information_has_been_updated_successfully'));
+            $this->db->trans_complete();
+            if ($this->db->trans_status() === false) {
+                set_alert('error', translate('something_went_wrong_please_try_again'));
+            } else {
+                set_alert('success', translate('information_has_been_updated_successfully'));
+            }
             redirect(current_url());
         }
+
         $this->data['branch_id'] = $branchID;
-        $this->data['title'] = translate('student_attendance');
-        $this->data['sub_page'] = 'attendance/student_entries';
+        $this->data['title']     = translate('student_attendance');
+        $this->data['sub_page']  = 'attendance/student_entries';
         $this->data['main_menu'] = 'attendance';
         $this->load->view('layout/index', $this->data);
     }
 
-    
     public function getWeekendsHolidays()
     {
         if (!get_permission('student_attendance', 'is_add')) {
             ajax_access_denied();
         }
         if ($_POST) {
-            $branchID = $this->input->post('branch_id');
+            $branchID    = $this->input->post('branch_id');
             $getWeekends = $this->application_model->getWeekends($branchID);
-            $getHolidays = $this->attendance_model->getHolidays($branchID);
-            echo json_encode(['getWeekends' => $getWeekends, 'getHolidays' => '["' . $getHolidays . '"]' ]);
+            // Return holidays as a proper array — no manual JSON string construction
+            $holidaysArr = $this->attendance_model->getHolidaysArray($branchID);
+            echo json_encode(['getWeekends' => $getWeekends, 'getHolidays' => $holidaysArr]);
         }
     }
 
-    // employees submitted attendance all data are prepared and stored in the database here
+    /** AJAX: return timetable periods for a given class/section/date (for period-aware entry). */
+    public function get_periods()
+    {
+        if (!get_permission('student_attendance', 'is_add')) {
+            ajax_access_denied();
+        }
+        if ($_POST) {
+            $branchID  = $this->application_model->get_branch_id();
+            $classID   = (int)$this->input->post('class_id');
+            $sectionID = (int)$this->input->post('section_id');
+            $date      = $this->input->post('date');
+            $dayName   = date('l', strtotime($date));
+            $periods   = $this->attendance_model->getPeriodsForClassDay($classID, $sectionID, $dayName, $branchID);
+            echo json_encode($periods);
+        }
+    }
+
     public function employees_entry()
     {
         if (!get_permission('employee_attendance', 'is_add')) {
@@ -120,49 +150,61 @@ class Attendance extends Admin_Controller
                 $this->form_validation->set_rules('branch_id', translate('branch'), 'required');
             }
             $this->form_validation->set_rules('staff_role', translate('role'), 'required');
-            $this->form_validation->set_rules('date', translate('date'), 'trim|required|callback_check_weekendday|callback_check_holiday|callback_get_valid_date');
+            $this->form_validation->set_rules('date', translate('date'), 'trim|required|callback_check_backdate_limit|callback_check_weekendday|callback_check_holiday|callback_get_valid_date');
             if ($this->form_validation->run() == true) {
                 $roleID = $this->input->post('staff_role');
-                $date = $this->input->post('date');
-                $this->data['date'] = $date;
+                $date   = $this->input->post('date');
+                $this->data['date']           = $date;
                 $this->data['attendencelist'] = $this->attendance_model->getStaffAttendence($roleID, $date, $branchID);
             }
         }
         $this->data['getWeekends'] = $this->application_model->getWeekends($branchID);
+
         if (isset($_POST['save'])) {
             $attendance = $this->input->post('attendance');
-            $date = $this->input->post('date');
+            $date       = $this->input->post('date');
+            $actorID    = get_loggedin_id();
+
+            $this->db->trans_start();
             foreach ($attendance as $key => $value) {
-                $attStatus = (isset($value['status']) ? $value['status'] : "");
-                $arrayAttendance = array(
-                    'staff_id' => $value['staff_id'],
-                    'status' => $attStatus,
-                    'remark' => $value['remark'],
-                    'date' => $date,
+                $attStatus = $value['status'] ?? '';
+                $arrayAttendance = [
+                    'staff_id'  => $value['staff_id'],
+                    'status'    => $attStatus,
+                    'remark'    => $value['remark'],
+                    'date'      => $date,
                     'branch_id' => $branchID,
-                );
+                ];
+
                 if (empty($value['attendance_id'])) {
+                    $arrayAttendance['created_by'] = $actorID;
                     $this->db->insert('staff_attendance', $arrayAttendance);
                 } else {
                     $this->db->where('id', $value['attendance_id']);
-                    $this->db->update('staff_attendance', array('status' => $attStatus, 'remark' => $value['remark']));
-                }
-                // send student absent then sms
-                if ($attStatus == 'A') {
-                    $this->sms_model->send_sms($arrayAttendance, 3);
+                    $this->db->update('staff_attendance', [
+                        'status'     => $attStatus,
+                        'remark'     => $value['remark'],
+                        'updated_by' => $actorID,
+                        'updated_at' => date('Y-m-d H:i:s'),
+                    ]);
                 }
             }
-            set_alert('success', translate('information_has_been_updated_successfully'));
+            $this->db->trans_complete();
+            if ($this->db->trans_status() === false) {
+                set_alert('error', translate('something_went_wrong_please_try_again'));
+            } else {
+                set_alert('success', translate('information_has_been_updated_successfully'));
+            }
             redirect(current_url());
         }
+
         $this->data['branch_id'] = $branchID;
-        $this->data['title'] = translate('employee_attendance');
-        $this->data['sub_page'] = 'attendance/employees_entries';
+        $this->data['title']     = translate('employee_attendance');
+        $this->data['sub_page']  = 'attendance/employees_entries';
         $this->data['main_menu'] = 'attendance';
         $this->load->view('layout/index', $this->data);
     }
 
-    // exam submitted attendance all data are prepared and stored in the database here
     public function exam_entry()
     {
         if (!get_permission('exam_attendance', 'is_add')) {
@@ -174,60 +216,74 @@ class Attendance extends Admin_Controller
             if (is_superadmin_loggedin()) {
                 $this->form_validation->set_rules('branch_id', translate('branch'), 'required');
             }
-            $this->form_validation->set_rules('exam_id', translate('exam'), 'required');
-            $this->form_validation->set_rules('class_id', translate('class'), 'required');
+            $this->form_validation->set_rules('exam_id',    translate('exam'),    'required');
+            $this->form_validation->set_rules('class_id',   translate('class'),   'required');
             $this->form_validation->set_rules('section_id', translate('section'), 'required');
             $this->form_validation->set_rules('subject_id', translate('subject'), 'required');
 
             if ($this->form_validation->run() == true) {
-                $classID = $this->input->post('class_id');
+                $classID   = $this->input->post('class_id');
                 $sectionID = $this->input->post('section_id');
-                $examID = $this->input->post('exam_id');
+                $examID    = $this->input->post('exam_id');
                 $subjectID = $this->input->post('subject_id');
-                $this->data['class_id'] = $classID;
-                $this->data['section_id'] = $sectionID;
-                $this->data['exam_id'] = $examID;
-                $this->data['subject_id'] = $subjectID;
+                $this->data['class_id']       = $classID;
+                $this->data['section_id']     = $sectionID;
+                $this->data['exam_id']        = $examID;
+                $this->data['subject_id']     = $subjectID;
                 $this->data['attendencelist'] = $this->attendance_model->getExamAttendence($classID, $sectionID, $examID, $subjectID, $branchID);
             }
         }
 
         if (isset($_POST['save'])) {
             $attendance = $this->input->post('attendance');
-            $subjectID = $this->input->post('subject_id');
-            $examID = $this->input->post('exam_id');
+            $subjectID  = $this->input->post('subject_id');
+            $examID     = $this->input->post('exam_id');
+            $actorID    = get_loggedin_id();
+
+            $this->db->trans_start();
             foreach ($attendance as $key => $value) {
-                $attStatus = (isset($value['status']) ? $value['status'] : "");
-                $arrayAttendance = array(
+                $attStatus = $value['status'] ?? '';
+                $arrayAttendance = [
                     'student_id' => $value['student_id'],
-                    'status' => $attStatus,
-                    'remark' => $value['remark'],
-                    'exam_id' => $examID,
+                    'status'     => $attStatus,
+                    'remark'     => $value['remark'],
+                    'exam_id'    => $examID,
                     'subject_id' => $subjectID,
-                    'branch_id' => $branchID,
-                );
+                    'branch_id'  => $branchID,
+                ];
                 if (empty($value['attendance_id'])) {
+                    $arrayAttendance['created_by'] = $actorID;
                     $this->db->insert('exam_attendance', $arrayAttendance);
                 } else {
                     $this->db->where('id', $value['attendance_id']);
-                    $this->db->update('exam_attendance', array('status' => $attStatus, 'remark' => $value['remark']));
+                    $this->db->update('exam_attendance', [
+                        'status'     => $attStatus,
+                        'remark'     => $value['remark'],
+                        'updated_by' => $actorID,
+                        'updated_at' => date('Y-m-d H:i:s'),
+                    ]);
                 }
-                // send student absent then sms
                 if ($attStatus == 'A') {
-                    $this->sms_model->send_sms($arrayAttendance, 4);
+                    $arrayAttendance['student_id'] = $value['student_id'];
+                    $this->_queue_attendance_sms($arrayAttendance, 4);
                 }
             }
-            set_alert('success', translate('information_has_been_updated_successfully'));
+            $this->db->trans_complete();
+            if ($this->db->trans_status() === false) {
+                set_alert('error', translate('something_went_wrong_please_try_again'));
+            } else {
+                set_alert('success', translate('information_has_been_updated_successfully'));
+            }
             redirect(current_url());
         }
+
         $this->data['branch_id'] = $branchID;
-        $this->data['title'] = translate('exam_attendance');
-        $this->data['sub_page'] = 'attendance/exam_entries';
+        $this->data['title']     = translate('exam_attendance');
+        $this->data['sub_page']  = 'attendance/exam_entries';
         $this->data['main_menu'] = 'attendance';
         $this->load->view('layout/index', $this->data);
     }
 
-    // student attendance reports are produced here
     public function studentwise_report()
     {
         if (!get_permission('student_attendance_report', 'is_view')) {
@@ -236,16 +292,21 @@ class Attendance extends Admin_Controller
 
         $branchID = $this->application_model->get_branch_id();
         if ($_POST) {
-            $this->data['class_id'] = $this->input->post('class_id');
+            $this->data['class_id']   = $this->input->post('class_id');
             $this->data['section_id'] = $this->input->post('section_id');
-            $this->data['month'] = date('m', strtotime($this->input->post('timestamp')));
-            $this->data['year'] = date('Y', strtotime($this->input->post('timestamp')));
-            $this->data['days'] = cal_days_in_month(CAL_GREGORIAN, $this->data['month'], $this->data['year']);
+            $this->data['month']      = date('m', strtotime($this->input->post('timestamp')));
+            $this->data['year']       = date('Y', strtotime($this->input->post('timestamp')));
+            $this->data['days']       = cal_days_in_month(CAL_GREGORIAN, $this->data['month'], $this->data['year']);
             $this->data['studentlist'] = $this->attendance_model->getStudentList($branchID, $this->data['class_id'], $this->data['section_id']);
+            // Batch-load all attendance for the month — eliminates N+1 queries
+            $this->data['attendance_map'] = $this->attendance_model->getStudentMonthlyAttendanceBatch(
+                $branchID, $this->data['class_id'], $this->data['section_id'],
+                $this->data['year'], $this->data['month']
+            );
         }
         $this->data['branch_id'] = $branchID;
-        $this->data['title'] = translate('student_attendance');
-        $this->data['sub_page'] = 'attendance/student_report';
+        $this->data['title']     = translate('student_attendance');
+        $this->data['sub_page']  = 'attendance/student_report';
         $this->data['main_menu'] = 'attendance_report';
         $this->load->view('layout/index', $this->data);
     }
@@ -263,18 +324,17 @@ class Attendance extends Admin_Controller
             }
             $this->form_validation->set_rules('date', translate('date'), 'trim|required|callback_get_valid_date');
             if ($this->form_validation->run() == true) {
-                $this->data['date'] = $this->input->post('date');
+                $this->data['date']           = $this->input->post('date');
                 $this->data['attendancelist'] = $this->attendance_model->getDailyStudentReport($branchID, $this->data['date']);
             }
         }
         $this->data['branch_id'] = $branchID;
-        $this->data['title'] = translate('student') . ' ' . translate('daily_reports');
-        $this->data['sub_page'] = 'attendance/student_classreport';
+        $this->data['title']     = translate('student') . ' ' . translate('daily_reports');
+        $this->data['sub_page']  = 'attendance/student_classreport';
         $this->data['main_menu'] = 'attendance_report';
         $this->load->view('layout/index', $this->data);
     }
 
-    /* employees attendance reports are produced here */
     public function employeewise_report()
     {
         if (!get_permission('employee_attendance_report', 'is_view')) {
@@ -283,19 +343,18 @@ class Attendance extends Admin_Controller
 
         if ($_POST) {
             $this->data['branch_id'] = $this->application_model->get_branch_id();
-            $this->data['role_id'] = $this->input->post('staff_role');
-            $this->data['month'] = date('m', strtotime($this->input->post('timestamp')));
-            $this->data['year'] = date('Y', strtotime($this->input->post('timestamp')));
-            $this->data['days'] = cal_days_in_month(CAL_GREGORIAN, $this->data['month'], $this->data['year']);
+            $this->data['role_id']   = $this->input->post('staff_role');
+            $this->data['month']     = date('m', strtotime($this->input->post('timestamp')));
+            $this->data['year']      = date('Y', strtotime($this->input->post('timestamp')));
+            $this->data['days']      = cal_days_in_month(CAL_GREGORIAN, $this->data['month'], $this->data['year']);
             $this->data['stafflist'] = $this->attendance_model->getStaffList($this->data['branch_id'], $this->data['role_id']);
         }
-        $this->data['title'] = translate('employee_attendance');
-        $this->data['sub_page'] = 'attendance/employees_report';
+        $this->data['title']     = translate('employee_attendance');
+        $this->data['sub_page']  = 'attendance/employees_report';
         $this->data['main_menu'] = 'attendance_report';
         $this->load->view('layout/index', $this->data);
     }
 
-    /* student exam attendance reports are produced here */
     public function examwise_report()
     {
         if (!get_permission('exam_attendance_report', 'is_view')) {
@@ -304,58 +363,213 @@ class Attendance extends Admin_Controller
 
         $branchID = $this->application_model->get_branch_id();
         if ($_POST) {
-            $this->data['class_id'] = $this->input->post('class_id');
+            $this->data['class_id']   = $this->input->post('class_id');
             $this->data['section_id'] = $this->input->post('section_id');
-            $this->data['exam_id'] = $this->input->post('exam_id');
+            $this->data['exam_id']    = $this->input->post('exam_id');
             $this->data['subject_id'] = $this->input->post('subject_id');
-            $this->data['branch_id'] = $this->application_model->get_branch_id();
+            $this->data['branch_id']  = $this->application_model->get_branch_id();
             $this->data['examreport'] = $this->attendance_model->getExamReport($this->data);
         }
         $this->data['branch_id'] = $branchID;
-        $this->data['title'] = translate('exam_attendance');
-        $this->data['sub_page'] = 'attendance/exam_report';
+        $this->data['title']     = translate('exam_attendance');
+        $this->data['sub_page']  = 'attendance/exam_report';
         $this->data['main_menu'] = 'attendance_report';
         $this->load->view('layout/index', $this->data);
     }
 
+    /** Students below the branch attendance threshold. */
+    public function at_risk_report()
+    {
+        if (!get_permission('student_attendance_report', 'is_view')) {
+            access_denied();
+        }
+
+        $branchID  = $this->application_model->get_branch_id();
+        $branchRow = $this->db->select('attendance_threshold')->where('id', $branchID)->get('branch')->row();
+        $threshold = $branchRow ? (int)$branchRow->attendance_threshold : 75;
+
+        $this->data['at_risk']   = $this->attendance_model->getAtRiskStudents($branchID, $threshold);
+        $this->data['threshold'] = $threshold;
+        $this->data['branch_id'] = $branchID;
+        $this->data['title']     = 'At-Risk Attendance Report';
+        $this->data['sub_page']  = 'attendance/at_risk_report';
+        $this->data['main_menu'] = 'attendance_report';
+        $this->load->view('layout/index', $this->data);
+    }
+
+    /**
+     * Admin-triggered or cron-triggered SMS queue flush.
+     * Can be called via cron: GET /attendance/process_sms_queue?key=<cron_secret_key>
+     */
+    public function process_sms_queue()
+    {
+        $cronKey = $this->db->select('cron_secret_key')->get('global_settings')->row()->cron_secret_key ?? '';
+        $isAdmin = get_loggedin_id() && is_superadmin_loggedin();
+        $isCron  = !empty($cronKey) && $this->input->get('key') === $cronKey;
+
+        if (!$isAdmin && !$isCron) {
+            access_denied();
+        }
+
+        $this->load->model('sms_model');
+        $branchID = is_superadmin_loggedin() ? null : $this->application_model->get_branch_id();
+        $result   = $this->sms_model->flush_queue($branchID, 100);
+
+        if ($isCron && !$isAdmin) {
+            header('Content-Type: application/json');
+            echo json_encode($result);
+            exit;
+        }
+
+        set_alert('success', "SMS queue processed — sent: {$result['sent']}, failed: {$result['failed']}");
+        redirect($_SERVER['HTTP_REFERER'] ?? base_url('dashboard'));
+    }
+
+    // ── Validation callbacks ──────────────────────────────────────────────────
+
     public function get_valid_date($date)
     {
-        $present_date = date('Y-m-d');
-        $date = date("Y-m-d", strtotime($date));
-        if ($date > $present_date) {
-            $this->form_validation->set_message("get_valid_date", "Please Enter Correct Date");
+        $presentDate = date('Y-m-d');
+        $dateNorm    = date('Y-m-d', strtotime($date));
+        if ($dateNorm > $presentDate) {
+            $this->form_validation->set_message('get_valid_date', 'Please enter a valid date (not in the future).');
             return false;
-        } else {
+        }
+        return true;
+    }
+
+    /**
+     * Rejects dates older than the branch-configured backdating window (default 7 days).
+     * Superadmins bypass this check.
+     */
+    public function check_backdate_limit($date)
+    {
+        if (is_superadmin_loggedin()) {
             return true;
         }
+        $branchID  = $this->application_model->get_branch_id();
+        $branchRow = $this->db->select('attendance_backdate_days')->where('id', $branchID)->get('branch')->row();
+        $maxDays   = $branchRow ? (int)$branchRow->attendance_backdate_days : 7;
+        $cutoff    = date('Y-m-d', strtotime("-{$maxDays} days"));
+        if (date('Y-m-d', strtotime($date)) < $cutoff) {
+            $this->form_validation->set_message('check_backdate_limit', "Attendance can only be entered within the last {$maxDays} day(s). Contact a superadmin to edit older records.");
+            return false;
+        }
+        return true;
     }
 
-    public function check_holiday($date) {
-        $branchID = $this->application_model->get_branch_id();
-        $getHolidays = $this->attendance_model->getHolidays($branchID);
-        $getHolidaysArray = explode('","', $getHolidays);
-
-        if(!empty($getHolidaysArray)) {
-            if(in_array($date, $getHolidaysArray)) {
-                $this->form_validation->set_message('check_holiday','You have selected a holiday.');
-                return FALSE;
-            } else {
-                return TRUE;
-            }
+    public function check_holiday($date)
+    {
+        $branchID        = $this->application_model->get_branch_id();
+        $holidayDates    = $this->attendance_model->getHolidaysArray($branchID);
+        if (!empty($holidayDates) && in_array($date, $holidayDates, true)) {
+            $this->form_validation->set_message('check_holiday', 'You have selected a holiday.');
+            return false;
         }
+        return true;
     }
 
-    public function check_weekendday($date) {
+    /**
+     * Validates that the submitted date is not a weekend.
+     * Uses a day-of-week check against the branch's weekend setting instead of
+     * iterating over all 365 days of the year.
+     */
+    public function check_weekendday($date)
+    {
+        $branchID       = $this->application_model->get_branch_id();
+        $weekendsRaw    = $this->application_model->getWeekends($branchID);
+        if (empty($weekendsRaw)) {
+            return true;
+        }
+        $weekendNums = array_map('intval', explode(',', $weekendsRaw));
+        $dayOfWeek   = (int)date('w', strtotime($date));
+        if (in_array($dayOfWeek, $weekendNums, true)) {
+            $this->form_validation->set_message('check_weekendday', 'You have selected a weekend date.');
+            return false;
+        }
+        return true;
+    }
+
+    // ── Internal helpers ──────────────────────────────────────────────────────
+
+    /** Period-wise attendance report (requires period_id to have been captured during entry). */
+    public function period_report()
+    {
+        if (!get_permission('student_attendance_report', 'is_view')) {
+            access_denied();
+        }
+
         $branchID = $this->application_model->get_branch_id();
-        $getWeekendDays = $this->attendance_model->getWeekendDaysSession($branchID);
-        if(!empty($getWeekendDays)) {
-            if(in_array($date, $getWeekendDays)) {
-                $this->form_validation->set_message('check_weekendday', "You have selected a weekend date.");
-                return FALSE;
-            } else {
-                return TRUE;
+        if ($_POST) {
+            $classID   = $this->input->post('class_id');
+            $sectionID = $this->input->post('section_id');
+            $month     = date('m', strtotime($this->input->post('timestamp')));
+            $year      = date('Y', strtotime($this->input->post('timestamp')));
+
+            $this->data['class_id']   = $classID;
+            $this->data['section_id'] = $sectionID;
+            $this->data['month']      = $month;
+            $this->data['year']       = $year;
+            $this->data['report']     = $this->attendance_model->getStudentPeriodWiseReport(
+                $branchID, $classID, $sectionID, $year, $month
+            );
+        }
+
+        $this->data['branch_id'] = $branchID;
+        $this->data['title']     = 'Period-wise Attendance Report';
+        $this->data['sub_page']  = 'attendance/period_report';
+        $this->data['main_menu'] = 'attendance_report';
+        $this->load->view('layout/index', $this->data);
+    }
+
+    /** Flush today's queued SMS notifications for the current branch. */
+    public function notify_today()
+    {
+        if (!get_permission('student_attendance', 'is_add')) {
+            access_denied();
+        }
+
+        $branchID = $this->application_model->get_branch_id();
+        $result   = $this->sms_model->flush_queue($branchID, 200);
+        set_alert('success', "SMS queue flushed — sent: {$result['sent']}, failed: {$result['failed']}.");
+        redirect($_SERVER['HTTP_REFERER'] ?? base_url('attendance/student_entry'));
+    }
+
+    /**
+     * Build the SMS payload from student details and queue it — never sends inline.
+     */
+    private function _queue_attendance_sms(array $data, int $templateID)
+    {
+        $branchID = $this->application_model->get_branch_id();
+        $sms_api  = $this->application_model->smsServiceProvider($branchID);
+        if ($sms_api === 'disabled') {
+            return;
+        }
+        $template = $this->db->get_where('sms_template_details', ['template_id' => $templateID, 'branch_id' => $branchID])->row_array();
+        if (empty($template) || ($template['notify_student'] != 1 && $template['notify_parent'] != 1)) {
+            return;
+        }
+
+        $student = $this->application_model->getstudentdetails($data['student_id']);
+        if (empty($student)) {
+            return;
+        }
+
+        $text = str_replace(
+            ['{name}', '{register_no}', '{admission_date}', '{class}', '{section}', '{roll}'],
+            [$student['first_name'] . ' ' . $student['last_name'], $student['register_no'], $student['admission_date'], $student['class_name'], $student['section_name'], $student['roll']],
+            $template['template_body']
+        );
+
+        if ($template['notify_student'] == 1 && !empty($student['mobileno'])) {
+            $this->sms_model->queue_sms($student['mobileno'], $text, $template['dlt_template_id'], $branchID);
+        }
+
+        if ($template['notify_parent'] == 1 && !empty($student['parent_id'])) {
+            $parent = $this->db->select('mobileno')->where('id', $student['parent_id'])->get('parent')->row_array();
+            if (!empty($parent['mobileno'])) {
+                $this->sms_model->queue_sms($parent['mobileno'], $text, $template['dlt_template_id'], $branchID);
             }
         }
-        return TRUE;
     }
 }

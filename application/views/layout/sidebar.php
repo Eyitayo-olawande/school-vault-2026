@@ -348,19 +348,6 @@
                                             aria-hidden="true"></i><?=translate('multiple_import')?></span>
                                 </a>
                             </li>
-                            <?php } if(get_permission('multiple_import', 'is_add')){ ?>
-                            <li class="<?php if ($sub_page == 'student/dva_multi_add') echo 'nav-active';?>">
-                                <a href="<?=base_url('student/dva_csv_import')?>">
-                                    <span><i class="fas fa-caret-right"
-                                            aria-hidden="true"></i><?=translate('dva_multiple_import')?></span>
-                                </a>
-                            </li>
-                            <li class="<?php if ($sub_page == 'student/allocation_multi_add') echo 'nav-active';?>">
-                                <a href="<?=base_url('student/allocation_csv_import')?>">
-                                    <span><i class="fas fa-caret-right"
-                                            aria-hidden="true"></i><?=translate('allocation_multiple_import')?></span>
-                                </a>
-                            </li>
                             <?php } if(get_permission('student_category', 'is_view')){ ?>
                             <li class="<?php if ($sub_page == 'student/category') echo 'nav-active';?>">
                                 <a href="<?=base_url('student/category')?>">
@@ -1394,6 +1381,7 @@
                         get_permission('fees_group', 'is_view') ||
                         get_permission('fees_fine_setup', 'is_view') ||
                         get_permission('fees_allocation', 'is_view') ||
+                        get_permission('multiple_import', 'is_add') ||
                         get_permission('invoice', 'is_view') ||
                         get_permission('due_invoice', 'is_view') ||
                         get_permission('offline_payments', 'is_view') ||
@@ -1453,6 +1441,15 @@
                             <li class="<?php if ($sub_page == 'fees/allocation') echo 'nav-active';?>">
                                 <a href="<?=base_url('fees/allocation')?>"><span><i
                                             class="fas fa-caret-right"></i><?=translate('fees_allocation')?></span></a>
+                            </li>
+                            <?php } if(get_permission('multiple_import', 'is_add')) { ?>
+                            <li class="<?php if ($sub_page == 'student/dva_multi_add') echo 'nav-active';?>">
+                                <a href="<?=base_url('student/dva_csv_import')?>"><span><i
+                                            class="fas fa-caret-right"></i><?=translate('dva_multiple_import')?></span></a>
+                            </li>
+                            <li class="<?php if ($sub_page == 'student/allocation_multi_add') echo 'nav-active';?>">
+                                <a href="<?=base_url('student/allocation_csv_import')?>"><span><i
+                                            class="fas fa-caret-right"></i><?=translate('allocation_multiple_import')?></span></a>
                             </li>
                             <?php } if(get_permission('invoice', 'is_view')) { ?>
                             <li
@@ -1565,7 +1562,7 @@
                     <li
                         class="nav-parent <?php if ($main_menu == 'accounting_repots' ||
                                                         $main_menu == 'student_repots' ||
-                                                            $main_menu == 'fees_repots' ||
+                                                            $main_menu == 'fees_reports' ||
                                                                 $main_menu == 'attendance_report' ||
                                                                     $main_menu == 'payroll_reports' ||
                                                                         $main_menu == 'leave_reports' ||
@@ -1603,9 +1600,18 @@
                         if (moduleIsEnabled('student_accounting')) {
                             if(get_permission('fees_reports', 'is_view')) { ?>
                             <li
-                                class="nav-parent <?php if ($main_menu == 'fees_repots') echo 'nav-expanded nav-active'; ?>">
+                                class="nav-parent <?php if ($main_menu == 'fees_reports') echo 'nav-expanded nav-active'; ?>">
                                 <a><i class="fas fa-print"></i><span><?php echo translate('fees_reports'); ?></span></a>
                                 <ul class="nav nav-children">
+                                    <li class="<?php if ($sub_page == 'fees/financial_overview') echo 'nav-active';?>">
+                                        <a href="<?=base_url('fees/financial_overview')?>">Financial Overview</a>
+                                    </li>
+                                    <li class="<?php if ($sub_page == 'fees/classwise_fees_summary') echo 'nav-active';?>">
+                                        <a href="<?=base_url('fees/classwise_fees_summary')?>">Class-wise Summary</a>
+                                    </li>
+                                    <li class="<?php if ($sub_page == 'fees/section_fees_summary') echo 'nav-active';?>">
+                                        <a href="<?=base_url('fees/section_fees_summary')?>">Section-wise Summary</a>
+                                    </li>
                                     <li class="<?php if ($sub_page == 'fees/student_fees_report') echo 'nav-active';?>">
                                         <a
                                             href="<?=base_url('fees/student_fees_report')?>"><?=translate('fees_report')?></a>
@@ -1625,6 +1631,23 @@
                                         <a
                                             href="<?=base_url('fees/dedicated_virtual_accounts_reports')?>"><?=translate('dedicated_virtual_account')?></a>
                                     </li>
+                                    <?php if (get_permission('fees_reports', 'is_view')): ?>
+                                    <li class="<?php if ($sub_page == 'fees/wallet_reconciliation') echo 'nav-active';?>">
+                                        <a href="<?=base_url('fees/wallet_reconciliation')?>">DVA Wallet Reconciliation</a>
+                                    </li>
+                                    <li class="<?php if ($sub_page == 'fees/dva_transaction_history') echo 'nav-active';?>">
+                                        <a href="<?=base_url('fees/dva_transaction_history')?>">DVA Transaction History</a>
+                                    </li>
+                                    <li class="<?php if ($sub_page == 'fees/dva_sync') echo 'nav-active';?>">
+                                        <a href="<?=base_url('fees/dva_sync')?>">DVA Account Sync</a>
+                                    </li>
+                                    <li class="<?php if ($sub_page == 'fees/session_outstanding_report') echo 'nav-active';?>">
+                                        <a href="<?=base_url('fees/session_outstanding_report')?>">Outstanding Balances</a>
+                                    </li>
+                                    <li class="<?php if ($sub_page == 'fees/financial_exceptions') echo 'nav-active';?>">
+                                        <a href="<?=base_url('fees/financial_exceptions')?>">Financial Exceptions</a>
+                                    </li>
+                                    <?php endif; ?>
                                 </ul>
                             </li>
                             <?php }} ?>
@@ -1702,6 +1725,20 @@
                                     <li class="<?php if ($sub_page == 'attendance/exam_report') echo 'nav-active';?>">
                                         <a href="<?=base_url('attendance/examwise_report')?>">
                                             <?=translate('exam') . ' ' . translate('reports')?>
+                                        </a>
+                                    </li>
+                                    <?php } if(get_permission('student_attendance_report', 'is_view')) { ?>
+                                    <li class="<?php if ($sub_page == 'attendance/at_risk_report') echo 'nav-active';?>">
+                                        <a href="<?=base_url('attendance/at_risk_report')?>">
+                                            <i class="fas fa-exclamation-triangle text-danger" style="font-size:11px;"></i>
+                                            At-Risk Students
+                                        </a>
+                                    </li>
+                                    <?php } if(get_permission('student_attendance_report', 'is_view')) { ?>
+                                    <li class="<?php if ($sub_page == 'attendance/period_report') echo 'nav-active';?>">
+                                        <a href="<?=base_url('attendance/period_report')?>">
+                                            <i class="fas fa-clock" style="font-size:11px;"></i>
+                                            Period-wise Report
                                         </a>
                                     </li>
                                     <?php } ?>

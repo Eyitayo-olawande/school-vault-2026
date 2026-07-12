@@ -1,6 +1,8 @@
 <?php
-$widget = (is_superadmin_loggedin() ? 4 : 6);
+$widget    = (is_superadmin_loggedin() ? 4 : 6);
 $currency_symbol = $global_config['currency_symbol'];
+$selSessID = (int)set_value('session_id', $active_session);
+$selTerm   = set_value('term', '');
 ?>
 <div class="row">
 	<div class="col-md-12">
@@ -43,6 +45,41 @@ $currency_symbol = $global_config['currency_symbol'];
 							?>
 						</div>
 					</div>
+					<div class="col-md-<?php echo $widget; ?> mb-sm">
+						<div class="form-group">
+							<label class="control-label"><?=translate('due_date')?> (<?=translate('on_or_before')?>)</label>
+							<div class="input-group">
+								<span class="input-group-addon"><i class="fas fa-calendar-check"></i></span>
+								<input type="text" class="form-control datepicker" name="due_before"
+									value="<?php echo set_value('due_before'); ?>" placeholder="<?=translate('optional')?>" />
+							</div>
+						</div>
+					</div>
+				</div>
+				<div class="row mb-sm">
+					<div class="col-md-4">
+						<div class="form-group">
+							<label class="control-label">Academic Session</label>
+							<select name="session_id" class="form-control"
+								data-plugin-selectTwo data-width="100%" data-minimum-results-for-search="Infinity">
+								<?php foreach ($session_list as $sid => $lbl): ?>
+									<option value="<?=$sid?>" <?=($sid == $selSessID) ? 'selected' : ''?>><?=htmlspecialchars($lbl)?></option>
+								<?php endforeach; ?>
+							</select>
+						</div>
+					</div>
+					<div class="col-md-4">
+						<div class="form-group">
+							<label class="control-label">Academic Term</label>
+							<select name="term" class="form-control"
+								data-plugin-selectTwo data-width="100%" data-minimum-results-for-search="Infinity">
+								<option value="" <?=empty($selTerm) ? 'selected' : ''?>>All Terms</option>
+								<option value="1ST TERM" <?=($selTerm === '1ST TERM') ? 'selected' : ''?>>1st Term</option>
+								<option value="2ND TERM" <?=($selTerm === '2ND TERM') ? 'selected' : ''?>>2nd Term</option>
+								<option value="3RD TERM" <?=($selTerm === '3RD TERM') ? 'selected' : ''?>>3rd Term</option>
+							</select>
+						</div>
+					</div>
 				</div>
 			</div>
 			<footer class="panel-footer">
@@ -58,7 +95,14 @@ $currency_symbol = $global_config['currency_symbol'];
 		<section class="panel appear-animation" data-appear-animation="<?php echo $global_config['animations'];?>" data-appear-animation-delay="100">
 			<?php echo form_open('fees/invoicePrint', array('class' => 'printIn')); ?>
 			<header class="panel-heading">
-				<h4 class="panel-title"><i class="fas fa-list-ol"></i> <?=translate('due_fees_report');?></h4>
+				<h4 class="panel-title"><i class="fas fa-list-ol"></i> <?=translate('due_fees_report');?>
+					<div class="panel-btn">
+						<a href="<?=base_url('fees/export_due_report_csv?class_id='.set_value('class_id').'&section_id='.set_value('section_id').'&due_before='.set_value('due_before'))?>"
+							class="btn btn-xs btn-default btn-circle">
+							<i class="fas fa-file-csv"></i> CSV Export
+						</a>
+					</div>
+				</h4>
 			</header>
 			<div class="panel-body">
 				<div class="mb-md mt-md">
@@ -76,6 +120,7 @@ $currency_symbol = $global_config['currency_symbol'];
 								<th><?=translate('total_discount')?></th>
 								<th><?=translate('total_fine')?></th>
 								<th><?=translate('total_balance')?></th>
+								<th class="no-sort no-export"><?=translate('action')?></th>
 							</tr>
 						</thead>
 						<tbody>
@@ -108,6 +153,12 @@ $currency_symbol = $global_config['currency_symbol'];
 								<td><?php echo currencyFormat($row['payment']['total_discount']);?></td>
 								<td><?php echo currencyFormat($row['payment']['total_fine']);?></td>
 								<td><?php echo currencyFormat($row['total_fees'] - $paid);?></td>
+								<td>
+									<a href="<?=base_url('fees/student_ledger/' . $row['student_id'])?>"
+										class="btn btn-xs btn-default btn-circle" target="_blank">
+										<i class="fas fa-book"></i> Ledger
+									</a>
+								</td>
 							</tr>
 							<?php } endforeach; ?>
 						</tbody>
@@ -123,6 +174,7 @@ $currency_symbol = $global_config['currency_symbol'];
 								<th><?php echo currencyFormat($totaldiscount); ?></th>
 								<th><?php echo currencyFormat($totalfine); ?></th>
 								<th><?php echo currencyFormat($totalbalance); ?></th>
+								<th></th>
 							</tr>
 						</tfoot>
 					</table>

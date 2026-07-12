@@ -285,6 +285,10 @@ class Parents extends Admin_Controller
             if ($query->num_rows() == 1) {
                 $this->session->set_userdata('myChildren_id', $id);
             }
+            $redirect = $this->input->get('redirect');
+            if ($redirect && preg_match('/^[a-z0-9_\/]+$/i', $redirect)) {
+                redirect(base_url($redirect));
+            }
             redirect($_SERVER['HTTP_REFERER']);
         } else {
             $this->session->set_userdata('last_page', current_url());
@@ -319,5 +323,107 @@ class Parents extends Admin_Controller
             $this->session->set_userdata('last_page', current_url());
             redirect(base_url(), 'refresh');
         }
+    }
+
+    /**
+     * Monthly attendance calendar for the currently selected child.
+     * Accessible to both the parent and the student portal.
+     */
+    public function my_attendance()
+    {
+        if (!is_parent_loggedin() && !is_student_loggedin()) {
+            $this->session->set_userdata('last_page', current_url());
+            redirect(base_url(), 'refresh');
+        }
+
+        $this->load->model('attendance_model');
+
+        if (is_student_loggedin()) {
+            $studentID  = get_loggedin_user_id();
+            $studentRow = $this->db->select('first_name,last_name')->where('id', $studentID)->get('student')->row_array();
+        } else {
+            $studentID  = $this->session->userdata('myChildren_id');
+            if (empty($studentID)) {
+                redirect(base_url('dashboard'));
+            }
+            // Verify child belongs to this parent
+            $check = $this->db->select('id,first_name,last_name')
+                ->where(['id' => $studentID, 'parent_id' => get_loggedin_user_id()])
+                ->get('student')->row_array();
+            if (empty($check)) {
+                show_error('Child not found.');
+            }
+            $studentRow = $check;
+        }
+
+        $sessionID = get_session_id();
+        $enroll    = $this->db->select('id')->where(['student_id' => $studentID, 'session_id' => $sessionID])->get('enroll')->row();
+        if (empty($enroll)) {
+            show_error('Student is not enrolled in the current session.');
+        }
+        $enrollID = $enroll->id;
+
+        $branchID = get_loggedin_branch_id();
+
+        // Determine month/year from POST or default to current
+        if ($_POST) {
+            $month = date('m', strtotime($this->input->post('timestamp')));
+            $year  = date('Y', strtotime($this->input->post('timestamp')));
+        } else {
+            $month = date('m');
+            $year  = date('Y');
+        }
+        $days = cal_days_in_month(CAL_GREGORIAN, $month, $year);
+
+        // Fetch all attendance for this student for the selected month
+        $from = sprintf('%04d-%02d-01', $year, $month);
+        $to   = sprintf('%04d-%02d-%02d', $year, $month, $days);
+        $rows = $this->db->query(
+            "SELECT date, status, remark FROM student_attendance
+             WHERE enroll_id = " . $this->db->escape($enrollID) . "
+               AND date BETWEEN " . $this->db->escape($from) . " AND " . $this->db->escape($to) . "
+               AND period_id IS NULL"
+        )->result_array();
+
+        $monthData = [];
+        foreach ($rows as $r) {
+            $monthData[$r['date']] = ['status' => $r['status'], 'remark' => $r['remark']];
+        }
+
+        // Compute summary
+        $p = $a = $l = $hd = $ea = 0;
+        foreach ($monthData as $rec) {
+            switch ($rec['status']) {
+                case 'P':  $p++;  break;
+                case 'A':  $a++;  break;
+                case 'L':  $l++;  break;
+                case 'HD': $hd++; break;
+                case 'EA': $ea++; break;
+            }
+        }
+        $workingDen = $p + $a + $l + ($hd * 0.5);
+        $workingNum = $p + $l + ($hd * 0.5);
+        $pct        = $workingDen > 0 ? round(($workingNum / $workingDen) * 100, 1) : 0;
+
+        $branchRow  = $this->db->select('attendance_threshold')->where('id', $branchID)->get('branch')->row();
+        $threshold  = $branchRow ? (int)$branchRow->attendance_threshold : 75;
+
+        $weekendsRaw  = $this->db->select('weekends')->where('id', $branchID)->get('branch')->row()->weekends ?? '';
+        $weekendNums  = array_map('intval', array_filter(explode(',', $weekendsRaw), 'strlen'));
+        $holidays     = $this->attendance_model->getHolidaysArray($branchID);
+
+        $this->data['month_data']    = $monthData;
+        $this->data['month']         = $month;
+        $this->data['year']          = $year;
+        $this->data['days']          = $days;
+        $this->data['student_name']  = $studentRow['first_name'] . ' ' . $studentRow['last_name'];
+        $this->data['summary']       = ['present' => $p, 'absent' => $a, 'late' => $l, 'half' => $hd, 'excused' => $ea, 'pct' => $pct, 'working_den' => $workingDen];
+        $this->data['threshold']     = $threshold;
+        $this->data['weekend_nums']  = $weekendNums;
+        $this->data['holidays']      = $holidays;
+        $this->data['title']         = 'My Attendance';
+        $this->data['sub_page']      = 'attendance/my_attendance_portal';
+        $this->data['main_menu']     = 'attendance';
+        $this->load->view('layout/index', $this->data);
     }
 }

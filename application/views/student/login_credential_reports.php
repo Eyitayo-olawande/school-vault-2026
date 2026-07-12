@@ -66,10 +66,10 @@
 							<th><?=translate('class')?></th>
 							<th><?=translate('section')?></th>
 							<th><?=translate('register_no')?></th>
-							<th width="80"><?=translate('roll')?></th>
-							<th><?=translate('guardian_name')?></th>
 							<th><?=translate('student') . " " . translate('username')?></th>
 							<th><?=translate('parent') . " " . translate('username')?></th>
+							<th>DVA Account No</th>
+							<th>DVA Bank</th>
 							<th><?=translate('action')?></th>
 						</tr>
 					</thead>
@@ -83,16 +83,16 @@
 							<td><?php echo $row['class_name'];?></td>
 							<td><?php echo $row['section_name'];?></td>
 							<td><?php echo $row['register_no'];?></td>
-							<td><?php echo $row['roll'];?></td>
-							<td><?php echo (!empty($row['parent_id']) ? get_type_name_by_id('parent', $row['parent_id']) : 'N/A');?></td>
 							<td><?php echo $row['stu_username'];?></td>
-							<td><?php 
+							<td><?php
 							if (empty($row['parent_id'])) {
 								echo '-';
 							} else {
 								$parentID = $row['parent_id'];
 								echo $this->db->where(['user_id' => $parentID, 'role' => 6])->get('login_credential')->row()->username;
 							}?></td>
+							<td><?php echo !empty($row['dva_account']) ? htmlspecialchars($row['dva_account']) : '—'; ?></td>
+							<td><?php echo !empty($row['dva_bank'])    ? htmlspecialchars($row['dva_bank'])    : '—'; ?></td>
 							<td class="action">
 								<!-- quick view -->
 								<a href="javascript:void(0);" onclick="studentQuickView('<?=$row['student_id']?>', '<?=$row['parent_id']?>');" class="btn btn-default btn-circle" data-toggle="tooltip"

@@ -162,9 +162,8 @@ class Paystack extends CI_Controller {
                 echo 'Received unknown event type ' . $event->event;
         }
 
-        $response = ['status' => 'success', 'message' => 'Payment processed successfully'];
-        http_response_code(200); // Respond with a 200 status code to acknowledge receipt of the event
-        echo $input;
+        http_response_code(200);
+        echo json_encode(['status' => 'success', 'message' => 'Payment processed successfully']);
     }
 
     private function verify_paystack_signature($payload, $signature) {
@@ -203,153 +202,227 @@ class Paystack extends CI_Controller {
 
     private function save_transaction($event) {
         $payment_reference = $event->data->reference;
-        $amount = $event->data->amount;
-        $paid_at = $event->data->paid_at;
-        $fulldate = substr($paid_at,0,10) . ' '.substr($paid_at,11,8);
-        $ip_address = $event->data->ip_address;
-        $channel = $event->data->channel;
-        $sender_bank = $event->data->authorization->sender_bank;
-        $sender_name = $event->data->authorization->sender_name;
-        $email = $event->data->customer->email;
+        $email             = $event->data->customer->email;
 
+        // Student DVA path (the common case)
         $student_wallet = $this->db->select('*')
             ->where('email_address', $email)
             ->from('student_wallet')
             ->get()->row_array();
-        $wallet_amount = $student_wallet['amount'];
-        $sessionID = get_session_id();
-        log_message('info', 'Wallet Amount: '.$wallet_amount);
-        $student_data = $this->db->select('*')
+
+        if (!empty($student_wallet)) {
+            $this->distribute_student_wallet($student_wallet, $payment_reference);
+            return;
+        }
+
+        // Family DVA path — Phase 6: parent email registered as DVA customer
+        $parent_wallet = $this->db->select('*')
+            ->where('email_address', $email)
+            ->from('parent_wallet')
+            ->get()->row_array();
+
+        if (!empty($parent_wallet)) {
+            $this->distribute_parent_wallet($parent_wallet, $payment_reference);
+            return;
+        }
+
+        log_message('error', 'DVA save_transaction: no wallet (student or parent) for email=' . $email . ' ref=' . $payment_reference);
+    }
+
+    // Distribute a student's DVA wallet across their own fee allocations (proportionally).
+    private function distribute_student_wallet($student_wallet, $payment_reference) {
+        $wallet_id     = $student_wallet['id'];
+        $wallet_amount = (float) $student_wallet['amount'];
+        $email         = $student_wallet['email_address'];
+
+        $student_data = $this->db->select('id')
             ->where('email', $email)
             ->from('student')
             ->get()->row_array();
-        $student_id = $student_data['id'];
-        $this->db->where('student_id', $student_id);
-        $this->db->where('session_id', $sessionID); //Changed on 2026-04-14 by Hafeez
-        //$this->db->order_by('session_id', 'desc'); //Changed on 2026-04-14 by Hafeez
-        $result = $this->db->get('fee_allocation')->result_array();
-        log_message('info', $this->db->last_query()); //Changed on 2026-04-14 by Hafeez
-        // echo json_encode($result);
+
+        if (empty($student_data)) {
+            log_message('error', 'DVA distribute_student_wallet: no student for email=' . $email . ' ref=' . $payment_reference);
+            return;
+        }
+
+        // Idempotency: compound keys are {ref}_alloc{id}_type{id} — check prefix
+        $already = $this->db->query(
+            'SELECT COUNT(*) AS cnt FROM fee_payment_history WHERE gateway_reference LIKE CONCAT(?, "_alloc%")',
+            [$payment_reference]
+        )->row()->cnt;
+        if ($already > 0) {
+            log_message('info', 'DVA distribute_student_wallet: already applied ref=' . $payment_reference);
+            return;
+        }
+
+        $fee_balances = $this->build_fee_balances((int) $student_data['id']);
+
+        if (empty($fee_balances) || $wallet_amount < 1) {
+            log_message('info', 'DVA distribute_student_wallet: nothing to apply ref=' . $payment_reference . ' (types=' . count($fee_balances) . ' wallet=' . $wallet_amount . ')');
+            return;
+        }
+
+        $history_inserts = $this->build_proportional_inserts($fee_balances, $wallet_amount, $wallet_id, $payment_reference, false);
+        $applied  = array_sum(array_column($history_inserts, 'amount'));
+        $remaining = max(0, $wallet_amount - $applied);
+
+        $this->db->trans_start();
+        foreach ($history_inserts as $row) { $this->savePaymentData($row); }
+        $this->update_student_wallet(['id' => $wallet_id, 'amount' => $remaining, 'updated_at' => date('Y-m-d H:i:s')]);
+        $this->db->trans_complete();
+
+        if ($this->db->trans_status() === false) {
+            log_message('error', 'DVA distribute_student_wallet: DB transaction FAILED ref=' . $payment_reference);
+        } else {
+            log_message('info', 'DVA distribute_student_wallet: committed ' . count($history_inserts) . ' rows, new_wallet=' . $remaining . ' ref=' . $payment_reference);
+        }
+    }
+
+    // Phase 6: distribute a parent's DVA wallet proportionally across all children's fee allocations.
+    private function distribute_parent_wallet($parent_wallet, $payment_reference) {
+        $wallet_id     = $parent_wallet['id'];
+        $wallet_amount = (float) $parent_wallet['amount'];
+        $parent_id     = (int) $parent_wallet['parent_id'];
+
+        // Idempotency: family rows use {ref}_parent{student_id}_alloc{id}_type{id}
+        $already = $this->db->query(
+            'SELECT COUNT(*) AS cnt FROM fee_payment_history WHERE gateway_reference LIKE CONCAT(?, "_parent%")',
+            [$payment_reference]
+        )->row()->cnt;
+        if ($already > 0) {
+            log_message('info', 'DVA distribute_parent_wallet: already applied ref=' . $payment_reference);
+            return;
+        }
+
+        $children = $this->db->select('id')
+            ->where('parent_id', $parent_id)
+            ->get('student')->result_array();
+
+        if (empty($children)) {
+            log_message('error', 'DVA distribute_parent_wallet: no children for parent_id=' . $parent_id . ' ref=' . $payment_reference);
+            return;
+        }
+
+        // Collect outstanding balances across all children
+        $all_fee_balances = [];
+        foreach ($children as $child) {
+            $child_balances = $this->build_fee_balances((int) $child['id']);
+            foreach ($child_balances as $b) {
+                $b['student_id'] = (int) $child['id'];
+                $all_fee_balances[] = $b;
+            }
+        }
+
+        if (empty($all_fee_balances) || $wallet_amount < 1) {
+            log_message('info', 'DVA distribute_parent_wallet: nothing to apply ref=' . $payment_reference . ' parent_id=' . $parent_id);
+            return;
+        }
+
+        $history_inserts = $this->build_proportional_inserts($all_fee_balances, $wallet_amount, $wallet_id, $payment_reference, true);
+        $applied   = array_sum(array_column($history_inserts, 'amount'));
+        $remaining = max(0, $wallet_amount - $applied);
+
+        $this->db->trans_start();
+        foreach ($history_inserts as $row) { $this->savePaymentData($row); }
+        $this->db->where('id', $wallet_id)->update('parent_wallet', ['amount' => $remaining, 'updated_at' => date('Y-m-d H:i:s')]);
+        $this->db->trans_complete();
+
+        if ($this->db->trans_status() === false) {
+            log_message('error', 'DVA distribute_parent_wallet: DB transaction FAILED ref=' . $payment_reference);
+        } else {
+            log_message('info', 'DVA distribute_parent_wallet: committed ' . count($history_inserts) . ' rows across ' . count($children) . ' children, new_wallet=' . $remaining . ' ref=' . $payment_reference);
+        }
+    }
+
+    // Build an array of outstanding (allocation_id, type_id, balance) for a student in the current session.
+    private function build_fee_balances($student_id) {
+        $sessionID   = get_session_id();
+        $allocations = $this->db
+            ->where('student_id', $student_id)
+            ->where('session_id', $sessionID)
+            ->get('fee_allocation')->result_array();
+
         $fee_balances = [];
-        foreach ($result as $key => $value) {
-            $allocation_id = $value['id'];
-            $group_id = $value['group_id'];
-            $groupsDetails = $this->db->select('fee_type_id')->where('fee_groups_id', $group_id)->get('fee_groups_details')->result();
-            foreach ($groupsDetails as $k => $type) {
-                //$fine = $this->fees_model->feeFineCalculation($allocation_id, $type->fee_type_id);
-                $b = $this->fees_model->getBalance($allocation_id, $type->fee_type_id);
-                $total_balance = $b['balance'];
-                //$total_fine += abs($fine - $b['fine']);
-                $fee_type_id = $type->fee_type_id;
-            }
-            $balance = array(
-                'allocation_id' => $allocation_id,
-                'type_id' => $fee_type_id,
-                'balance' => $total_balance
-            );
-            array_push($fee_balances, $balance);
-        }
-        echo json_encode($fee_balances);
-
-        // Apply Wallet Amount Against Student Balances
-        $counter = 1;
-        foreach ($fee_balances as $value) {
-            //Skip entry when balance is Zero
-            if ($value['balance'] <= 0) {
-                continue;
-            }
-            if ($value['balance'] <= $wallet_amount) {
-                $wallet_amount -= $value['balance'];
-                log_message('info', 'Deduction 1: '.$counter.' - Owed Balance : '.$value['balance'].' | New Wallet Amount : '.$wallet_amount);
-
-                // Save payment data into fee_payment_history
-                $arrayFees = array(
-                    'allocation_id' => $value['allocation_id'],
-                    'type_id' => $value['type_id'],
-                    'collect_by' => "",
-                    'amount' => $value['balance'],
-                    'discount' => 0,
-                    'fine' => 0,
-                    'pay_via' => 99,
-                    'collect_by' => 'wallet',
-                    'remarks' => "Fees deposits online via DVA Wallet: " . $student_wallet['id']. ' for allocation '.$value['allocation_id'].' at '.date('Y-m-d H:i:s:u'),
-                    'date' => date("Y-m-d"),
-                );
-                $result = $this->savePaymentData($arrayFees);
-
-                // Update Student Wallet only after successful entry
-                if ($result) {
-                    $timestamp = date('Y-m-d H:i:s');
-                    $walletData = array(
-                        'id' => $student_wallet['id'],
-                        'amount' => $wallet_amount,
-                        'updated_at' => $timestamp,
-                    );
-                    $this->update_student_wallet($walletData);  
-                }
-
-                $counter+=1;
-                
-            } else {
-                // Apply whatever amount is in the wallet to the available allocations
-                if ($wallet_amount >=1) {
-                   // Save payment data into fee_payment_history
-                    $arrayFees = array(
-                        'allocation_id' => $value['allocation_id'],
-                        'type_id' => $value['type_id'],
-                        'collect_by' => "",
-                        'amount' => $wallet_amount,
-                        'discount' => 0,
-                        'fine' => 0,
-                        'pay_via' => 99,
-                        'collect_by' => 'wallet',
-                        'remarks' => "Fees deposits online via DVA Wallet: " . $student_wallet['id']. ' for allocation '.$value['allocation_id'].' at '.date('Y-m-d H:i:s:u'),
-                        'date' => date("Y-m-d"),
-                    );
-                    
-                    $result = $this->savePaymentData($arrayFees);
-
-                    // Update Student Wallet only after successful entry
-                    if ($result) {
-                        $timestamp = date('Y-m-d H:i:s');
-                        $walletData = array(
-                            'id' => $student_wallet['id'],
-                            'amount' => 0,
-                            'updated_at' => $timestamp,
-                        );
-                        $this->update_student_wallet($walletData);
-
-                        // Set Wallet Amount to Zero
-                        $wallet_amount = 0;
-                    }
-                    
-                }
+        foreach ($allocations as $alloc) {
+            $allocation_id = $alloc['id'];
+            $group_id      = $alloc['group_id'];
+            $groupsDetails = $this->db->select('fee_type_id')
+                ->where('fee_groups_id', $group_id)
+                ->get('fee_groups_details')->result();
+            foreach ($groupsDetails as $type) {
+                $b       = $this->fees_model->getBalance($allocation_id, $type->fee_type_id);
+                $balance = (float) $b['balance'];
+                if ($balance <= 0) { continue; }
+                $fee_balances[] = [
+                    'allocation_id' => $allocation_id,
+                    'type_id'       => $type->fee_type_id,
+                    'balance'       => $balance,
+                ];
             }
         }
+        return $fee_balances;
+    }
+
+    // Phase 7: build fee_payment_history inserts using proportional distribution.
+    // Proportional allocation ensures no single fee type is fully cleared while others remain
+    // completely unpaid — each type receives a share proportional to its outstanding balance.
+    private function build_proportional_inserts($fee_balances, $wallet_amount, $wallet_id, $payment_reference, $is_family = false) {
+        $total_outstanding = array_sum(array_column($fee_balances, 'balance'));
+        $to_distribute     = min($wallet_amount, $total_outstanding);
+        $today             = date('Y-m-d');
+
+        $history_inserts = [];
+        foreach ($fee_balances as $item) {
+            if ($to_distribute <= 0) { break; }
+            $share = ($total_outstanding > 0) ? ($item['balance'] / $total_outstanding * $to_distribute) : 0;
+            $apply = round(min($item['balance'], $share), 2);
+            if ($apply < 0.01) { continue; }
+
+            $ref_suffix = $is_family
+                ? '_parent' . ($item['student_id'] ?? 0) . '_alloc' . $item['allocation_id'] . '_type' . $item['type_id']
+                : '_alloc' . $item['allocation_id'] . '_type' . $item['type_id'];
+
+            $history_inserts[] = [
+                'allocation_id'     => $item['allocation_id'],
+                'type_id'           => $item['type_id'],
+                'collect_by'        => 'wallet',
+                'amount'            => $apply,
+                'discount'          => 0,
+                'fine'              => 0,
+                'pay_via'           => 99,
+                'response_status'   => 'success',
+                'remarks'           => 'Fees deposits online via DVA Wallet: ' . $wallet_id
+                                       . ' alloc=' . $item['allocation_id']
+                                       . ' ref=' . $payment_reference,
+                'gateway_reference' => $payment_reference . $ref_suffix,
+                'date'              => $today,
+            ];
+        }
+        return $history_inserts;
     }
 
     private function save_payment_history($payment_reference) {
         $payment_transaction_data = $this->gettransactionbyreference($payment_reference);
         $arrayFeesData = array(
-            'allocation_id' => $payment_transaction_data->allocation_id,
-            'type_id' => $payment_transaction_data->type_id,
-            'collect_by' => $payment_transaction_data->collect_by,
-            'amount' => ($payment_transaction_data->amount / 100),
-            'discount' => 0,
-            'fine' => 0,
-            'pay_via' => 9,
-            'remarks' => "Fees deposits online via Paystack Ref ID: " . $payment_reference,
-            'date' => date("Y-m-d"),
+            'allocation_id'     => $payment_transaction_data->allocation_id,
+            'type_id'           => $payment_transaction_data->type_id,
+            'collect_by'        => $payment_transaction_data->collect_by,
+            'amount'            => ($payment_transaction_data->amount / 100),
+            'discount'          => 0,
+            'fine'              => 0,
+            'pay_via'           => 9,
+            'gateway_reference' => $payment_reference,
+            'response_status'   => $payment_transaction_data->response_status ?? 'success',
+            'remarks'           => "Fees deposits online via Paystack Ref ID: " . $payment_reference,
+            'date'              => date("Y-m-d"),
         );
-        $this->db->select('*'); 
-        $this->db->from('fee_payment_history'); 
-        $this->db->like('remarks', $payment_reference); 
-        $recordCount = $this->db->count_all_results();
-        // $recordCount = $this->db->like('remarks', $payment_reference)->count_all_results('fee_payment_history');
+        // Use gateway_reference (UNIQUE) for idempotency — no substring false-positives
+        $recordCount = $this->db->where('gateway_reference', $payment_reference)->count_all_results('fee_payment_history');
         if ($recordCount < 1) {
             $this->db->insert('fee_payment_history', $arrayFeesData);
+            // Remove the staging record now that it has been applied
+            $this->db->where('pay_reference', $payment_reference)->delete('fee_payment_transaction');
         }
-        
     }
 
     private function save_dva_data($dva_data) {
@@ -447,23 +520,86 @@ class Paystack extends CI_Controller {
 
         $result = false;
 
-        // Save details to Wallet if entry succeeds
-        if($paystack_log_id > 0) {
-            $query = $this->db->select('id')->where('email', $customer_email)->get('student');
-            $student_data = $query->row(); // Returns a single row object
-            $timestamp = date('Y-m-d H:i:s');
-            $walletData = array(
-                'student_id' => $student_data->id,
-                'email_address' => $customer_email,
-                'amount' => ($amount / 100),
-                'payment_gateway' => 'paystack',
-                'payment_gateway_reference' => $payment_reference,
-                'payment_channel' => 'dedicated_nuban',
-                'update_count' => 0,
-                'updated_at' => $timestamp,
-            );
-            $result = $this->save_student_wallet($walletData);
-            return $result;
+        if ($paystack_log_id > 0) {
+            $amount_naira = $amount / 100;
+            $timestamp    = date('Y-m-d H:i:s');
+
+            $student_data = $this->db->select('id')->where('email', $customer_email)->get('student')->row();
+
+            // DVA school-format emails (firstname.lastname@school.com) won't match the
+            // student's personal email stored in `student.email`. Fall back to the
+            // Paystack customer_id → dedicated_virtual_account → student link.
+            if (!$student_data) {
+                $dva_row = $this->db->select('user_id')
+                    ->where('customer_id', $customer_id)
+                    ->get('dedicated_virtual_account')->row();
+                if ($dva_row) {
+                    $student_data = $this->db->select('id')
+                        ->where('id', (int) $dva_row->user_id)
+                        ->get('student')->row();
+                    if ($student_data) {
+                        log_message('info', 'DVA save_paystack_response: resolved email=' . $customer_email
+                            . ' via DVA customer_id=' . $customer_id . ' to student_id=' . $student_data->id);
+
+                        // Misattribution guard: if this email belongs to a DIFFERENT student, the
+                        // paystack_logs entry is phantom — reject it rather than crediting the wrong wallet.
+                        $email_owner = $this->db->select('id')
+                            ->where('email', $customer_email)
+                            ->where('id !=', (int) $student_data->id)
+                            ->get('student')->row();
+                        if ($email_owner) {
+                            log_message('error', 'DVA save_paystack_response PHANTOM REJECTED: ref=' . $payment_reference
+                                . ' customer_email=' . $customer_email . ' belongs to student_id=' . $email_owner->id
+                                . ' not DVA owner student_id=' . $student_data->id . ' — skipping wallet credit');
+                            $student_data = null;
+                        }
+                    }
+                }
+            }
+
+            if ($student_data) {
+                // Student DVA wallet (existing path)
+                $walletData = array(
+                    'student_id'                => $student_data->id,
+                    'email_address'             => $customer_email,
+                    'amount'                    => $amount_naira,
+                    'payment_gateway'           => 'paystack',
+                    'payment_gateway_reference' => $payment_reference,
+                    'payment_channel'           => 'dedicated_nuban',
+                    'update_count'              => 0,
+                    'updated_at'                => $timestamp,
+                );
+                $result = $this->save_student_wallet($walletData);
+            } else {
+                // Phase 6: check if this is a parent DVA email
+                $parent_data = $this->db->select('id')->where('email', $customer_email)->get('parent')->row();
+                if (!$parent_data) {
+                    // Same fallback for parent DVA email: customer_id → parent_wallet email
+                    $dva_row = $dva_row ?? $this->db->select('user_id')
+                        ->where('customer_id', $customer_id)
+                        ->get('dedicated_virtual_account')->row();
+                    if ($dva_row) {
+                        $parent_data = $this->db->select('id')
+                            ->where('id', (int) $dva_row->user_id)
+                            ->get('parent')->row();
+                    }
+                }
+                if ($parent_data) {
+                    $walletData = array(
+                        'parent_id'                 => $parent_data->id,
+                        'email_address'             => $customer_email,
+                        'amount'                    => $amount_naira,
+                        'payment_gateway'           => 'paystack',
+                        'payment_gateway_reference' => $payment_reference,
+                        'payment_channel'           => 'dedicated_nuban',
+                        'update_count'              => 0,
+                        'updated_at'                => $timestamp,
+                    );
+                    $result = $this->save_parent_wallet($walletData);
+                } else {
+                    log_message('error', 'DVA save_paystack_response: no student or parent for email=' . $customer_email . ' ref=' . $payment_reference);
+                }
+            }
         }
 
         return $result;
@@ -498,9 +634,162 @@ class Paystack extends CI_Controller {
         return $response;
     }
 
+    private function save_parent_wallet($walletData) {
+        // Idempotency: skip if this reference is already recorded
+        $exists = $this->db->query(
+            'SELECT COUNT(*) AS cnt FROM parent_wallet WHERE payment_gateway_reference LIKE CONCAT("%", ?, "%")',
+            [$walletData['payment_gateway_reference']]
+        )->row()->cnt;
+
+        if ($exists > 0) {
+            log_message('error', 'Parent Wallet Reference ' . $walletData['payment_gateway_reference'] . ' already recorded');
+            return false;
+        }
+
+        $existing = $this->db->select('id, payment_gateway_reference, amount, update_count')
+            ->where('email_address', $walletData['email_address'])
+            ->get('parent_wallet')->row();
+
+        if ($existing) {
+            $this->db->where('id', $existing->id);
+            $walletData['amount'] = $existing->amount + $walletData['amount'];
+            $walletData['payment_gateway_reference'] = $existing->payment_gateway_reference . ',' . $walletData['payment_gateway_reference'];
+            $walletData['update_count'] = $existing->update_count + 1;
+            return $this->db->update('parent_wallet', $walletData);
+        } else {
+            return $this->db->insert('parent_wallet', $walletData);
+        }
+    }
+
     private function update_student_wallet($wallet_data) {
         $this->db->where('id', $wallet_data['id']);
         $this->db->update('student_wallet', $wallet_data);
+    }
+
+    // Admin endpoint: re-process DVA payments that landed in paystack_logs but were
+    // never allocated (because the email lookup failed before the DVA fallback existed).
+    // Only accessible to superadmin. Safe to run multiple times — idempotency guards
+    // inside save_student_wallet and build_proportional_inserts prevent double-posting.
+    public function reprocess_dva_backlog()
+    {
+        if (!is_superadmin_loggedin()) {
+            show_error('Access denied', 403);
+        }
+
+        // Find paystack_logs rows whose reference is not yet in any student_wallet
+        // payment_gateway_reference, meaning they were never turned into a wallet entry.
+        $logs = $this->db->query("
+            SELECT pl.id, pl.amount, pl.reference, pl.paid_date,
+                   pl.customer_email, pl.customer_id,
+                   dva.user_id AS student_id
+            FROM paystack_logs pl
+            INNER JOIN dedicated_virtual_account dva ON dva.customer_id = pl.customer_id
+            WHERE NOT EXISTS (
+                SELECT 1 FROM student_wallet sw
+                WHERE sw.payment_gateway_reference LIKE CONCAT('%', pl.reference, '%')
+            )
+            ORDER BY pl.paid_date ASC
+        ")->result_array();
+
+        $processed = 0;
+        $skipped   = 0;
+        $errors    = [];
+        $flagged   = [];
+
+        foreach ($logs as $log) {
+            $student_id     = (int) $log['student_id'];
+            $amount_naira   = (float) $log['amount'] / 100;
+            $reference      = $log['reference'];
+            $customer_email = $log['customer_email'];
+
+            $student = $this->db->select('id')->where('id', $student_id)->get('student')->row_array();
+            if (empty($student)) {
+                $errors[] = "ref=$reference: DVA user_id=$student_id not found in student table";
+                $skipped++;
+                continue;
+            }
+
+            // --- Misattribution guard ---
+            // If the log's customer_email belongs to a DIFFERENT student or portal user,
+            // the entry is phantom/misattributed — skip it and flag for manual review.
+            $email_owner_student = $this->db->select('id')
+                ->where('email', $customer_email)
+                ->where('id !=', $student_id)
+                ->get('student')->row_array();
+            if ($email_owner_student) {
+                $flagged[] = [
+                    'ref'            => $reference,
+                    'amount'         => $amount_naira,
+                    'dva_student_id' => $student_id,
+                    'reason'         => "customer_email $customer_email belongs to student_id=" . $email_owner_student['id'],
+                ];
+                $skipped++;
+                continue;
+            }
+
+            $email_owner_user = $this->db->select('id')
+                ->where('email', $customer_email)
+                ->get('users')->row_array();
+            if ($email_owner_user && (int) $email_owner_user['id'] !== $student_id) {
+                $flagged[] = [
+                    'ref'            => $reference,
+                    'amount'         => $amount_naira,
+                    'dva_student_id' => $student_id,
+                    'reason'         => "customer_email $customer_email belongs to users.id=" . $email_owner_user['id'],
+                ];
+                $skipped++;
+                continue;
+            }
+
+            $timestamp = date('Y-m-d H:i:s');
+            $walletData = [
+                'student_id'                => $student_id,
+                'email_address'             => $customer_email,
+                'payment_gateway'           => 'paystack',
+                'payment_gateway_reference' => $reference,
+                'payment_channel'           => 'dedicated_nuban',
+                'amount'                    => $amount_naira,
+                'update_count'              => 0,
+                'updated_at'                => $timestamp,
+            ];
+
+            $wallet_saved = $this->save_student_wallet($walletData);
+            if (!$wallet_saved) {
+                $skipped++;
+                continue;
+            }
+
+            // Reload wallet to get the freshly accumulated amount (may include prior credits)
+            $student_wallet = $this->db->select('*')
+                ->where('email_address', $customer_email)
+                ->get('student_wallet')->row_array();
+
+            if (!empty($student_wallet)) {
+                $this->distribute_student_wallet($student_wallet, $reference);
+                $processed++;
+            } else {
+                $errors[] = "ref=$reference: wallet not found after save for student_id=$student_id";
+                $skipped++;
+            }
+        }
+
+        $result = [
+            'total_found'    => count($logs),
+            'processed'      => $processed,
+            'skipped'        => $skipped,
+            'phantom_flagged' => $flagged,
+            'errors'         => $errors,
+        ];
+
+        log_message('info', 'DVA reprocess_dva_backlog: ' . json_encode($result));
+
+        if ($this->input->is_ajax_request()) {
+            header('Content-Type: application/json');
+            echo json_encode($result);
+            return;
+        }
+
+        echo '<pre>' . json_encode($result, JSON_PRETTY_PRINT) . '</pre>';
     }
 
     private function savePaymentData($data)
@@ -508,15 +797,25 @@ class Paystack extends CI_Controller {
         // insert in DB
         $result = $this->db->insert('fee_payment_history', $data);
 
+        // In webhook context get_loggedin_branch_id() is null — fall back to
+        // the branch_id on the fee_allocation row so vouchers are booked correctly.
+        $branch_id = get_loggedin_branch_id();
+        if ($branch_id === null && !empty($data['allocation_id'])) {
+            $alloc = $this->db->select('branch_id')
+                ->where('id', $data['allocation_id'])
+                ->get('fee_allocation')->row_array();
+            $branch_id = !empty($alloc) ? (int) $alloc['branch_id'] : null;
+        }
+
         // transaction voucher save function
-        $getSeeting = $this->fees_model->get('transactions_links', array('branch_id' => get_loggedin_branch_id()), true);
+        $getSeeting = $this->fees_model->get('transactions_links', array('branch_id' => $branch_id), true);
         if ($getSeeting['status']) {
             $arrayTransaction = array(
                 'account_id' => $getSeeting['deposit'],
                 'amount' => $data['amount'] + $data['fine'],
                 'date' => $data['date'],
             );
-            $this->fees_model->saveTransaction($arrayTransaction);
+            $this->fees_model->saveTransaction($arrayTransaction, '', $branch_id);
         }
 
         return $result;

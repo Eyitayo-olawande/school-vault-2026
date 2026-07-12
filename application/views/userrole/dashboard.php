@@ -36,9 +36,15 @@
 				<div class="col-md-12 col-lg-3 col-xl-4">
                 <a href="<?=base_url('parents/select_child/' . $row->id);?>" class="chil-shaw btn btn-primary btn-circle pull-right">
                     <i class="fas fa-tachometer-alt"></i> <?=translate('dashboard')?>
-                </a> 
+                </a>
                 <a href="<?=base_url('parents/select_child_invoice/' . $row->id);?>" class="chil-shaw btn btn-success btn-circle pull-right" style="margin-top: 10px;">
                     <i class="fas fa-file-invoice"></i> <?=translate('school_fees')?>
+                </a>
+                <a href="<?php
+                    // Set child context then redirect to attendance portal
+                    echo base_url('parents/select_child/' . $row->id . '?redirect=parents/my_attendance');
+                ?>" class="chil-shaw btn btn-info btn-circle pull-right" style="margin-top: 10px;">
+                    <i class="fas fa-calendar-check"></i> My Attendance
                 </a>
             </div>
 			</div>
@@ -159,6 +165,11 @@ else :
 		<div class="col-md-12">
 			<section class="panel">
 				<div class="panel-body">
+					<div class="pull-right mt-xs">
+						<a href="<?=base_url('parents/my_attendance')?>" class="btn btn-default btn-sm">
+							<i class="fas fa-calendar-check"></i> View Monthly Detail
+						</a>
+					</div>
 					<h4 class="chart-title mb-md"><?=translate('my_annual_attendance_overview')?></h4>
 					<div class="pg-fw">
 						<canvas id="attendance_overview" style="height:380px;"></canvas>
