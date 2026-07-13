@@ -252,7 +252,6 @@ LEFT JOIN (
 JOIN schoolyear sy  ON sy.id  = fa.session_id
 JOIN student s      ON s.id   = fa.student_id
 JOIN enroll e       ON e.student_id  = fa.student_id
-                   AND e.session_id  = fa.session_id
 JOIN class cl       ON cl.id  = e.class_id
 JOIN section sec    ON sec.id = e.section_id
 WHERE fa.branch_id = @branch_id
