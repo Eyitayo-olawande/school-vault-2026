@@ -170,7 +170,9 @@ class Fees_model extends MY_Model
 
         $status = "";
         $sessionID = get_session_id();
-        $sql = "SELECT SUM(`fee_groups_details`.`amount` + `fee_allocation`.`prev_due`) as `total`, min(`fee_allocation`.`id`) as `inv_no` FROM `fee_allocation` LEFT JOIN `fee_groups_details` ON `fee_groups_details`.`fee_groups_id` = `fee_allocation`.`group_id` LEFT JOIN `fees_type` ON `fees_type`.`id` = `fee_groups_details`.`fee_type_id` WHERE `fee_allocation`.`student_id` = " . $this->db->escape($enrollID) . " AND `fee_allocation`.`session_id` = " . $this->db->escape($sessionID);
+        // Use CASE to avoid multiplying prev_due by number of fee_groups_details rows:
+        // for system types fgd.amount=0 and prev_due holds the amount; for regular types prev_due=0.
+        $sql = "SELECT SUM(CASE WHEN `fees_type`.`system`=1 THEN `fee_allocation`.`prev_due` ELSE `fee_groups_details`.`amount` END) as `total`, min(`fee_allocation`.`id`) as `inv_no` FROM `fee_allocation` LEFT JOIN `fee_groups_details` ON `fee_groups_details`.`fee_groups_id` = `fee_allocation`.`group_id` LEFT JOIN `fees_type` ON `fees_type`.`id` = `fee_groups_details`.`fee_type_id` WHERE `fee_allocation`.`student_id` = " . $this->db->escape($enrollID) . " AND `fee_allocation`.`session_id` = " . $this->db->escape($sessionID);
         $balance = $this->db->query($sql)->row_array();
         $invNo = empty($balance['inv_no']) ? 0 : str_pad($balance['inv_no'], 4, '0', STR_PAD_LEFT);
 
@@ -193,7 +195,7 @@ class Fees_model extends MY_Model
         $this->db->group_end();
         $paid = $this->db->get()->row_array();
 
-        if ($paid['amount'] == 0) {
+        if (($paid['amount'] + $paid['discount']) == 0) {
             $status = 'unpaid';
         } elseif (($balance['total'] + $trans_amount) == ($paid['amount'] + $paid['discount'])) {
             $status = 'total';
@@ -270,45 +272,6 @@ class Fees_model extends MY_Model
         }
     }
 
-    // add partly of the fee
-    public function add_fees($data = array(), $id = '')
-    {
-        $total_due = get_type_name_by_id('fee_invoice', $id, 'total_due');
-        $payment_amount = $data['amount'];
-        if (($payment_amount <= $total_due) && ($payment_amount > 0)) {
-            $arrayHistory = array(
-                'fee_invoice_id' => $id,
-                'collect_by' => get_user_stamp(),
-                'remarks' => $data['remarks'],
-                'method' => $data['method'],
-                'amount' => $payment_amount,
-                'date' => date("Y-m-d"),
-                'session_id' => get_session_id(),
-            );
-            $this->db->insert('payment_history', $arrayHistory);
-
-            if ($total_due <= $payment_amount) {
-                $this->db->where('id', $id);
-                $this->db->update('fee_invoice', array('status' => 2));
-            } else {
-                $this->db->where('id', $id);
-                $this->db->update('fee_invoice', array('status' => 1));
-            }
-            $this->db->where('id', $id);
-            $this->db->set('total_paid', 'total_paid + ' . $payment_amount, false);
-            $this->db->set('total_due', 'total_due - ' . $payment_amount, false);
-            $this->db->update('fee_invoice');
-
-            // send payment confirmation sms
-            $arrayHistory['student_id'] = $data['student_id'];
-            $arrayHistory['timestamp'] = date("Y-m-d");
-            $this->sms_model->send_sms($arrayHistory, 2);
-            return true;
-        } else {
-            return false;
-        }
-    }
-
     public function getInvoiceList()
     {
         $branchID = $this->application_model->get_branch_id();
@@ -324,7 +287,6 @@ class Fees_model extends MY_Model
         $this->datatables->join('student as s', 's.id = e.student_id', 'left');
         $this->datatables->join('class as c', 'c.id = e.class_id', 'left');
         $this->datatables->join('section as se', 'se.id = e.section_id', 'left');
-        $this->datatables->where('fa.branch_id', 1);
         $this->datatables->where('fa.session_id', get_session_id());
         $this->datatables->where('s.active', 1);
         $this->datatables->where('fa.branch_id', $branchID);
@@ -332,7 +294,7 @@ class Fees_model extends MY_Model
             $this->datatables->where('e.class_id', $class_id);
         }
         if (!empty($section_id)) {
-            $this->db->where('e.section_id', $section_id);
+            $this->datatables->where('e.section_id', $section_id);
         }
         // filter classes by teacher assigned classes
         if ($assigned_cs_list != false && !empty($assigned_cs_list)) {
@@ -484,6 +446,7 @@ class Fees_model extends MY_Model
         $this->db->from('fee_allocation');
         $this->db->join('fee_payment_history', 'fee_payment_history.allocation_id = fee_allocation.id', 'left');
         $this->db->where('fee_allocation.student_id', $student_id);
+        $this->db->where('fee_allocation.session_id', get_session_id());
         return $this->db->get()->row_array();
     }
 
@@ -1053,7 +1016,7 @@ class Fees_model extends MY_Model
                 GROUP  BY fee_groups_id
             ) fgd_sum ON fgd_sum.fee_groups_id = fa.group_id
             LEFT JOIN (
-                SELECT allocation_id, SUM(amount - discount) AS paid
+                SELECT allocation_id, SUM(amount + discount) AS paid
                 FROM   fee_payment_history
                 GROUP  BY allocation_id
             ) fph_sum ON fph_sum.allocation_id = fa.id
@@ -1110,7 +1073,7 @@ class Fees_model extends MY_Model
                 GROUP BY fee_groups_id
             ) fgd ON fgd.fee_groups_id = fa.group_id
             LEFT JOIN (
-                SELECT allocation_id, SUM(amount - discount) AS net, date AS pay_date
+                SELECT allocation_id, SUM(amount + discount) AS net, date AS pay_date
                 FROM fee_payment_history
                 GROUP BY allocation_id, date
             ) fph ON fph.allocation_id = fa.id

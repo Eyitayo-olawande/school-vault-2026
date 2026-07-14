@@ -660,6 +660,7 @@ class Fees extends Admin_Controller
             $this->db->where('branch_id', get_loggedin_branch_id());
         }
         $this->db->where('student_id', $enrollID);
+        $this->db->where('session_id', get_session_id());
         $result = $this->db->get('fee_allocation')->result_array();
         foreach ($result as $key => $value) {
             $this->db->where('allocation_id', $value['id']);
@@ -670,6 +671,7 @@ class Fees extends Admin_Controller
             $this->db->where('branch_id', get_loggedin_branch_id());
         }
         $this->db->where('student_id', $enrollID);
+        $this->db->where('session_id', get_session_id());
         $this->db->delete('fee_allocation');
     }
 
@@ -1304,6 +1306,7 @@ class Fees extends Admin_Controller
             $allocations = $this->fees_model->getInvoiceDetails($invoiceID);
             $totalBalance = 0;
             $totalFine = 0;
+            $allPaymentIDs = [];
 
             foreach ($allocations as $row) {
                 $fine = $this->fees_model->feeFineCalculation($row['allocation_id'], $row['fee_type_id']);
@@ -1324,6 +1327,7 @@ class Fees extends Admin_Controller
                         'date' => $date,
                     );
                     $this->db->insert('fee_payment_history', $arrayFees);
+                    $allPaymentIDs[] = $this->db->insert_id();
                 }
             }
 
@@ -1334,7 +1338,7 @@ class Fees extends Admin_Controller
                     $b = $this->fees_model->getTransportBalance($value->id);
                     $balance = $b['balance'];
                     $fine = abs($fine - $b['fine']);
-                
+
                     if ($b['balance'] != 0) {
                         $totalBalance += $b['balance'];
                         $totalFine += $fine;
@@ -1351,18 +1355,21 @@ class Fees extends Admin_Controller
                             'date' => $date,
                         );
                         $this->db->insert('fee_payment_history', $arrayFees);
+                        $allPaymentIDs[] = $this->db->insert_id();
                     }
                 }
             }
 
-            // transaction voucher save function
+            // transaction voucher save function — link each payment row to the ledger entry
             if (isset($_POST['account_id'])) {
                 $arrayTransaction = array(
                     'account_id' => $this->input->post('account_id'),
                     'amount' => ($totalBalance + $totalFine),
                     'date' => $date,
                 );
-                $this->fees_model->saveTransaction($arrayTransaction);
+                foreach ($allPaymentIDs as $pid) {
+                    $this->fees_model->saveTransaction($arrayTransaction, $pid);
+                }
             }
 
             // send payment confirmation sms
@@ -1526,6 +1533,7 @@ class Fees extends Admin_Controller
                     $arrayFees['transport_fee_details_id'] = $value['trans_fd_id'];
                 }
                 $this->db->insert('fee_payment_history', $arrayFees);
+                $payment_historyID = $this->db->insert_id();
 
                 // transaction voucher save function
                 if (isset($value['account_id'])) {
@@ -1534,7 +1542,7 @@ class Fees extends Admin_Controller
                         'amount' => ($amount + $fineAmount) - $discountAmount,
                         'date' => $date,
                     );
-                    $this->fees_model->saveTransaction($arrayTransaction);
+                    $this->fees_model->saveTransaction($arrayTransaction, $payment_historyID);
                 }
                 // send payment confirmation sms
                 $arrayData = array(
@@ -1841,10 +1849,10 @@ class Fees extends Admin_Controller
         $sql = "
             SELECT
                 IFNULL(SUM(fgd.amount + fa.prev_due), 0)          AS total_invoiced,
-                IFNULL(SUM(fph.amount - fph.discount), 0)         AS total_collected,
+                IFNULL(SUM(fph.amount + fph.discount), 0)         AS total_collected,
                 IFNULL(SUM(fph.fine), 0)                          AS total_fines,
                 IFNULL(SUM(fgd.amount + fa.prev_due), 0)
-                  - IFNULL(SUM(fph.amount - fph.discount), 0)     AS total_outstanding
+                  - IFNULL(SUM(fph.amount + fph.discount), 0)     AS total_outstanding
             FROM fee_allocation fa
             INNER JOIN enroll e ON e.id = fa.student_id
             LEFT JOIN fee_groups_details fgd ON fgd.fee_groups_id = fa.group_id
@@ -1857,7 +1865,7 @@ class Fees extends Admin_Controller
         $monthSql = "
             SELECT DATE_FORMAT(fph.date, '%Y-%m') AS month_key,
                    DATE_FORMAT(fph.date, '%b %Y') AS month_label,
-                   SUM(fph.amount - fph.discount) AS collected
+                   SUM(fph.amount + fph.discount) AS collected
             FROM fee_payment_history fph
             INNER JOIN fee_allocation fa ON fa.id = fph.allocation_id
             INNER JOIN enroll e ON e.id = fa.student_id
@@ -1875,7 +1883,7 @@ class Fees extends Admin_Controller
                     WHEN fph.collect_by = 'online'                     THEN 'Other Online'
                     ELSE 'Cash / Offline'
                 END AS channel,
-                SUM(fph.amount - fph.discount) AS collected,
+                SUM(fph.amount + fph.discount) AS collected,
                 COUNT(*) AS txn_count
             FROM fee_payment_history fph
             INNER JOIN fee_allocation fa ON fa.id = fph.allocation_id
@@ -1891,9 +1899,9 @@ class Fees extends Admin_Controller
             SELECT c.name AS class_name,
                    COUNT(DISTINCT fa.student_id)                       AS student_count,
                    IFNULL(SUM(fgd.amount + fa.prev_due), 0)           AS invoiced,
-                   IFNULL(SUM(fph.amount - fph.discount), 0)          AS collected,
+                   IFNULL(SUM(fph.amount + fph.discount), 0)          AS collected,
                    IFNULL(SUM(fgd.amount + fa.prev_due), 0)
-                     - IFNULL(SUM(fph.amount - fph.discount), 0)      AS outstanding
+                     - IFNULL(SUM(fph.amount + fph.discount), 0)      AS outstanding
             FROM fee_allocation fa
             INNER JOIN enroll e ON e.id = fa.student_id
             INNER JOIN class  c ON c.id = e.class_id
@@ -1929,8 +1937,8 @@ class Fees extends Admin_Controller
         $overSql = "
             SELECT s.first_name, s.last_name, s.register_no, c.name AS class_name,
                    SUM(fgd.amount + fa.prev_due)          AS invoiced,
-                   SUM(fph.amount - fph.discount)         AS paid,
-                   SUM(fph.amount - fph.discount)
+                   SUM(fph.amount + fph.discount)         AS paid,
+                   SUM(fph.amount + fph.discount)
                      - SUM(fgd.amount + fa.prev_due)      AS overpaid
             FROM fee_allocation fa
             INNER JOIN enroll e  ON e.id  = fa.student_id
@@ -2014,53 +2022,62 @@ class Fees extends Admin_Controller
                     if (!$check) { access_denied(); }
                 }
 
-                $allocationSql = "
-                    SELECT fa.id AS allocation_id, fa.prev_due,
-                           fg.name AS group_name,
-                           SUM(fgd.amount) AS charged,
-                           IFNULL(paid_sub.paid, 0) AS paid,
-                           IFNULL(paid_sub.discount, 0) AS discount,
-                           SUM(fgd.amount) + fa.prev_due - IFNULL(paid_sub.paid, 0) AS balance
+                // Per-fee-type breakdown ($details) — matches view columns: name, due_date, amount, paid, discount, fine, balance
+                $detailsSql = "
+                    SELECT ft.name,
+                           fgd.due_date,
+                           CASE WHEN ft.system = 1 THEN fa.prev_due ELSE fgd.amount END AS amount,
+                           IFNULL(SUM(fph.amount),    0) AS paid,
+                           IFNULL(SUM(fph.discount),  0) AS discount,
+                           IFNULL(SUM(fph.fine),      0) AS fine,
+                           CASE WHEN ft.system = 1 THEN fa.prev_due ELSE fgd.amount END
+                             - IFNULL(SUM(fph.amount),   0)
+                             - IFNULL(SUM(fph.discount), 0) AS balance
                     FROM fee_allocation fa
-                    INNER JOIN fee_groups fg ON fg.id = fa.group_id
-                    LEFT JOIN fee_groups_details fgd ON fgd.fee_groups_id = fa.group_id
-                    LEFT JOIN (
-                        SELECT allocation_id,
-                               SUM(amount - discount) AS paid,
-                               SUM(discount)          AS discount
-                        FROM fee_payment_history
-                        GROUP BY allocation_id
-                    ) paid_sub ON paid_sub.allocation_id = fa.id
-                    WHERE fa.student_id = (SELECT id FROM enroll WHERE student_id = {$studentID} AND session_id = {$sessionID} LIMIT 1)
+                    INNER JOIN fee_groups_details fgd ON fgd.fee_groups_id = fa.group_id
+                    INNER JOIN fees_type ft ON ft.id = fgd.fee_type_id
+                    LEFT JOIN fee_payment_history fph ON fph.allocation_id = fa.id AND fph.type_id = fgd.fee_type_id
+                    WHERE fa.student_id = (SELECT id FROM enroll WHERE student_id = {$studentID} LIMIT 1)
                       AND fa.session_id = {$sessionID}
-                    GROUP BY fa.id
-                    ORDER BY fg.name
+                    GROUP BY fa.id, fgd.fee_type_id
+                    ORDER BY fa.group_id, ft.name
                 ";
-                $allocations = $this->db->query($allocationSql)->result_array();
+                $details = $this->db->query($detailsSql)->result_array();
 
+                // Payment transaction history ($transactions) — matches view columns
                 $paymentSql = "
-                    SELECT fph.*, ft.name AS type_name, pt.name AS pay_via_name, fg.name AS group_name
+                    SELECT fph.id AS receipt_no, fph.date,
+                           ft.name AS type_name,
+                           pt.name AS payment_method, fph.pay_via,
+                           fph.amount, fph.discount, fph.fine,
+                           fph.collect_by,
+                           IFNULL(fph.status, 'paid') AS status
                     FROM fee_payment_history fph
                     INNER JOIN fee_allocation fa ON fa.id = fph.allocation_id
-                    INNER JOIN fee_groups fg ON fg.id = fa.group_id
                     LEFT JOIN fees_type ft ON ft.id = fph.type_id
                     LEFT JOIN payment_types pt ON pt.id = fph.pay_via
-                    WHERE fa.student_id = (SELECT id FROM enroll WHERE student_id = {$studentID} AND session_id = {$sessionID} LIMIT 1)
+                    WHERE fa.student_id = (SELECT id FROM enroll WHERE student_id = {$studentID} LIMIT 1)
                       AND fa.session_id = {$sessionID}
                     ORDER BY fph.date ASC, fph.id ASC
                 ";
-                $payments = $this->db->query($paymentSql)->result_array();
+                $transactions = $this->db->query($paymentSql)->result_array();
 
-                $student = $this->db->where('id', $studentID)->get('student')->row_array();
-                $dva     = $this->db->where('user_id', $studentID)->where('active', 1)
+                // Fetch enroll.id to call getInvoiceBasic (which expects enroll.id, not student.id)
+                $enrollRow = $this->db->select('id')->where('student_id', $studentID)->get('enroll')->row_array();
+                $enrollID  = $enrollRow ? $enrollRow['id'] : null;
+                $basic     = $enrollID ? $this->fees_model->getInvoiceBasic($enrollID) : [];
+                $sessionLabel = $this->db->select('school_year')->where('id', $sessionID)->get('schoolyear')->row_array();
+
+                $dva = $this->db->where('user_id', $studentID)->where('active', 1)
                                ->get('dedicated_virtual_account')->row_array();
 
-                $this->data['allocations'] = $allocations;
-                $this->data['payments']    = $payments;
-                $this->data['student']     = $student;
-                $this->data['dva']         = $dva;
-                $this->data['session_id']  = $sessionID;
-                $this->data['student_id']  = $studentID;
+                $this->data['basic']        = $basic;
+                $this->data['details']      = $details;
+                $this->data['transactions'] = $transactions;
+                $this->data['dva']          = $dva;
+                $this->data['session_id']   = $sessionID;
+                $this->data['student_id']   = $studentID;
+                $this->data['session_label'] = $sessionLabel['school_year'] ?? '';
             }
         }
 
@@ -2103,7 +2120,7 @@ class Fees extends Admin_Controller
                                                         AND e.session_id = {$sessionID}
             INNER JOIN class   c ON c.id = e.class_id
             LEFT JOIN (
-                SELECT fa.student_id AS enroll_id, SUM(fph.amount - fph.discount) AS paid
+                SELECT fa.student_id AS enroll_id, SUM(fph.amount + fph.discount) AS paid
                 FROM fee_payment_history fph
                 INNER JOIN fee_allocation fa ON fa.id = fph.allocation_id
                 WHERE fa.session_id = {$sessionID}
