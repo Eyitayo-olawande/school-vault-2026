@@ -51,6 +51,8 @@ function smsIsarray($array)
 													"6" 		=> "SMS country",
 													"7" 		=> "Bulksmsbd.net",
 													"8" 		=> "Custom Gateway",
+													"9" 		=> "Termii (Nigeria)",
+													"10" 		=> "SmartSMS Solutions (Nigeria)",
 												);
 												echo form_dropdown("sms_service_provider", $arraySMS, set_value('sms_service', $sms_service_provider), "class='form-control'
 												data-plugin-selectTwo data-width='100%' data-minimum-results-for-search='Infinity' ");
@@ -405,6 +407,52 @@ function smsIsarray($array)
 								</div>
 							</div>
 						</div>
+
+							<div class="panel panel-accordion">
+								<div class="panel-heading"><h4 class="panel-title">
+									<a class="accordion-toggle" data-toggle="collapse" data-parent="#accordion" href="#termii">Termii Gateway (Nigeria)</a>
+								</h4></div>
+								<div id="termii" class="accordion-body collapse">
+									<?php echo form_open('school_settings/termii' . $url, array('class' => 'form-horizontal form-bordered frm-submit-msg'));
+									$termii = smsIsarray($api['termii'] ?? []);
+									?>
+									<div class="panel-body">
+										<div class="form-group mt-md"><label class="col-md-3 control-label">API Key <span class="required">*</span></label>
+										<div class="col-md-6"><input type="text" class="form-control" name="termii_api_key" value="<?=$termii['field_one']?>"></div></div>
+										<div class="form-group"><label class="col-md-3 control-label">Sender ID <span class="required">*</span></label>
+										<div class="col-md-6"><input type="text" class="form-control" name="termii_sender_id" value="<?=$termii['field_two']?>"></div></div>
+										<div class="form-group"><label class="col-md-3 control-label">Channel</label><div class="col-md-6 mb-md">
+											<select name="termii_channel" class="form-control">
+												<option value="generic" <?=($termii['field_three']=='generic'||empty($termii['field_three'])?'selected':'')?>>Generic (Default)</option>
+												<option value="dnd" <?=($termii['field_three']=='dnd'?'selected':'')?>>DND Numbers</option>
+											</select></div></div>
+									</div>
+									<div class="panel-footer"><div class="row"><div class="col-md-offset-3 col-md-2">
+										<button type="submit" class="btn btn-default btn-block"><i class="fas fa-plus-circle"></i> <?=translate('save')?></button>
+									</div></div></div>
+									<?php echo form_close();?>
+								</div>
+							</div>
+							<div class="panel panel-accordion">
+								<div class="panel-heading"><h4 class="panel-title">
+									<a class="accordion-toggle" data-toggle="collapse" data-parent="#accordion" href="#smartsms">SmartSMS Solutions Gateway (Nigeria)</a>
+								</h4></div>
+								<div id="smartsms" class="accordion-body collapse">
+									<?php echo form_open('school_settings/smartsms' . $url, array('class' => 'form-horizontal form-bordered frm-submit-msg'));
+									$smartsmsC = smsIsarray($api['smartsms'] ?? []);
+									?>
+									<div class="panel-body">
+										<div class="form-group mt-md"><label class="col-md-3 control-label">Token <span class="required">*</span></label>
+										<div class="col-md-6"><input type="text" class="form-control" name="smartsms_token" value="<?=$smartsmsC['field_one']?>"></div></div>
+										<div class="form-group"><label class="col-md-3 control-label">Sender Name <span class="required">*</span></label>
+										<div class="col-md-6 mb-md"><input type="text" class="form-control" name="smartsms_sender" value="<?=$smartsmsC['field_two']?>"></div></div>
+									</div>
+									<div class="panel-footer"><div class="row"><div class="col-md-offset-3 col-md-2">
+										<button type="submit" class="btn btn-default btn-block"><i class="fas fa-plus-circle"></i> <?=translate('save')?></button>
+									</div></div></div>
+									<?php echo form_close();?>
+								</div>
+							</div>
 					</div>
 				</div>
 			</div>

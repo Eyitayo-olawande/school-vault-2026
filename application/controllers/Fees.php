@@ -1,9 +1,11 @@
+
+
 <?php
 defined('BASEPATH') or exit('No direct script access allowed');
 
 /**
  * @package : Ramom school management system
- * @version : 6.0
+ * @version : 7.0
  * @developed by : RamomCoder
  * @support : ramomcoder@yahoo.com
  * @author url : http://codecanyon.net/user/RamomCoder
@@ -18,6 +20,8 @@ class Fees extends Admin_Controller
     {
         parent::__construct();
         $this->load->model('fees_model');
+        $this->load->model('email_model');
+        $this->load->library('datatables');
         if (!moduleIsEnabled('student_accounting')) {
             access_denied();
         }
@@ -214,9 +218,6 @@ class Fees extends Admin_Controller
             if ($this->form_validation->run() !== false) {
                 if (count($sel)) {
                     $groupID = $this->input->post('group_id');
-                    // group_id is client-supplied - verify it belongs to the
-                    // caller's branch before updating/deleting its contents.
-                    $this->app_lib->check_branch_restrictions('fee_groups', $groupID, true);
                     $arrayGroup = array(
                         'name' => $this->input->post('name'),
                         'description' => $this->input->post('description'),
@@ -257,7 +258,12 @@ class Fees extends Admin_Controller
             echo json_encode($array);
             exit();
         }
-        $this->data['group'] = $this->app_lib->getTable('fee_groups', array('t.id' => $id), true);
+        $group = $this->app_lib->getTable('fee_groups', array('t.id' => $id), true);
+        if (empty($group)) {
+            set_alert('error', translate('record_not_found'));
+            redirect(base_url('fees/group'));
+        }
+        $this->data['group'] = $group;
         $this->data['title'] = translate('fees_group');
         $this->data['sub_page'] = 'fees/group_edit';
         $this->data['main_menu'] = 'fees';
@@ -350,9 +356,6 @@ class Fees extends Admin_Controller
                     'branch_id' => $branchID,
                     'session_id' => get_session_id(),
                 );
-                // $id is a client-supplied URL segment - verify it belongs
-                // to the caller's branch before updating it.
-                $this->app_lib->check_branch_restrictions('fee_fine', $id, true);
                 $this->db->where('id', $id);
                 $this->db->update('fee_fine', $insertData);
                 set_alert('success', translate('information_has_been_updated_successfully'));
@@ -401,6 +404,87 @@ class Fees extends Admin_Controller
         }
     }
 
+    /**
+     * Check if student already has a fee allocation for a same-type fee group in the same session.
+     * "Same type" means the fee group name shares the same prefix before the academic year (e.g. "3RD TERM SCHOOL FEES ").
+     * BUS, MEAL, TRANSPORT variants are excluded — those may legitimately stack with school fees.
+     * Returns the conflicting group name, or false if no conflict.
+     */
+    private function _has_same_type_allocation($studentId, $groupId, $sessionId)
+    {
+        // Get the name of the group being allocated
+        $group = $this->db->select('name')->where('id', $groupId)->get('fee_groups')->row_array();
+        if (empty($group)) return false;
+        $name = $group['name'];
+
+        // Extract prefix before the academic year "(20..." — e.g. "3RD TERM SCHOOL FEES "
+        $prefix = strstr($name, '(20', true);
+        if ($prefix === false) return false; // name doesn't follow expected pattern
+
+        // Skip the check for transport/meal/bus variants (they may stack with tuition)
+        $upperPrefix = strtoupper($prefix);
+        foreach (['BUS', 'MEAL', 'TRANSPORT'] as $exempt) {
+            if (strpos($upperPrefix, $exempt) !== false) return false;
+        }
+
+        // Also skip if the group being allocated IS a bus/meal/transport type
+        // (already covered above since we check the prefix)
+
+        // Check for any existing allocation with a different group_id but same type prefix
+        $conflict = $this->db->query("
+            SELECT fg.name
+            FROM fee_allocation fa
+            INNER JOIN fee_groups fg ON fg.id = fa.group_id
+            WHERE fa.student_id = ?
+              AND fa.session_id  = ?
+              AND fa.group_id   != ?
+              AND fg.name LIKE ?
+              AND fg.name NOT LIKE '%BUS%'
+              AND fg.name NOT LIKE '%MEAL%'
+              AND fg.name NOT LIKE '%TRANSPORT%'
+            LIMIT 1
+        ", [$studentId, $sessionId, $groupId, $prefix . '%'])->row_array();
+
+        return $conflict ? $conflict['name'] : false;
+    }
+
+    /**
+     * Fire DVA fee-allocation SMS if the student has a dedicated virtual account.
+     * $studentId here is enroll.id (fee_allocation.student_id = enroll.id).
+     */
+    private function _triggerDvaAllocationSms($enrollId, $groupId, $branchID)
+    {
+        $enroll = $this->db->select('student_id')->where('id', $enrollId)->get('enroll')->row_array();
+        if (empty($enroll)) return;
+
+        $hasDva = $this->db->where('user_id', $enroll['student_id'])
+                           ->where('account_number IS NOT NULL', null, false)
+                           ->count_all_results('dedicated_virtual_account');
+        if ($hasDva == 0) return;
+
+        $group = $this->db->select('name')->where('id', $groupId)->get('fee_groups')->row_array();
+        $groupName = $group['name'] ?? '';
+
+        // Extract term from group name, e.g. "2025/2026 3RD TERM FEES" → "3RD TERM"
+        $term = '';
+        if (preg_match('/\b(1ST|2ND|3RD)\s+TERM\b/i', $groupName, $m)) {
+            $term = strtoupper($m[0]);
+        }
+
+        // Sum all fee lines in this group for the displayed amount
+        $amount = (float) $this->db->select_sum('amount')
+            ->where('fee_groups_id', $groupId)
+            ->get('fee_groups_details')->row()->amount;
+
+        $this->sms_model->dvaFeeAllocationNotice([
+            'branch_id'      => $branchID,
+            'enroll_id'      => $enrollId,
+            'fee_group_name' => $groupName,
+            'amount'         => $amount,
+            'term'           => $term,
+        ]);
+    }
+
     public function allocation()
     {
         if (!get_permission('fees_allocation', 'is_add')) {
@@ -420,26 +504,39 @@ class Fees extends Admin_Controller
             $student_sel_array = isset($student_array) ? $student_array : array();
             $delStudent = array_diff($student_ids, $student_sel_array);
             $fee_groupID = $this->input->post('fee_group_id');
+            $sessionId = get_session_id();
+            $blocked = [];
             foreach ($student_array as $key => $value) {
                 $arrayData = array(
                     'student_id' => $value,
                     'group_id' => $fee_groupID,
-                    'session_id' => get_session_id(),
+                    'session_id' => $sessionId,
                     'branch_id' => $branchID,
                 );
                 $this->db->where($arrayData);
                 $q = $this->db->get('fee_allocation');
                 if ($q->num_rows() == 0) {
-                    $this->db->insert('fee_allocation', $arrayData);
+                    $conflict = $this->_has_same_type_allocation($value, $fee_groupID, $sessionId);
+                    if ($conflict !== false) {
+                        $blocked[] = $value; // skip — already has same-type fee
+                    } else {
+                        $this->db->insert('fee_allocation', $arrayData);
+                        // DVA allocation notice — send only if student has a virtual account
+                        $this->_triggerDvaAllocationSms($value, $fee_groupID, $branchID);
+                    }
                 }
             }
             if (!empty($delStudent)) {
                 $this->db->where_in('student_id', $delStudent);
                 $this->db->where('group_id', $fee_groupID);
-                $this->db->where('session_id', get_session_id());
+                $this->db->where('session_id', $sessionId);
                 $this->db->delete('fee_allocation');
             }
-            set_alert('success', translate('information_has_been_saved_successfully'));
+            if (!empty($blocked)) {
+                set_alert('warning', count($blocked) . ' student(s) skipped — they already have a same-type fee allocated for this term.');
+            } else {
+                set_alert('success', translate('information_has_been_saved_successfully'));
+            }
             redirect(base_url('fees/allocation'));
         }
         $this->data['branch_id'] = $branchID;
@@ -461,30 +558,43 @@ class Fees extends Admin_Controller
             $student_sel_array = isset($student_array) ? $student_array : array();
             $delStudent = array_diff($student_ids, $student_sel_array);
             $fee_groupID = $this->input->post('fee_group_id');
+            $sessionId = get_session_id();
+            $blocked = [];
             if (!empty($student_sel_array)) {
                 foreach ($student_array as $key => $value) {
                     $arrayData = array(
                         'student_id' => $value,
                         'group_id' => $fee_groupID,
-                        'session_id' => get_session_id(),
+                        'session_id' => $sessionId,
                         'branch_id' => $branchID,
                     );
                     $this->db->where($arrayData);
                     $q = $this->db->get('fee_allocation');
                     if ($q->num_rows() == 0) {
-                        $this->db->insert('fee_allocation', $arrayData);
+                        $conflict = $this->_has_same_type_allocation($value, $fee_groupID, $sessionId);
+                        if ($conflict === false) {
+                            $this->db->insert('fee_allocation', $arrayData);
+                            $this->_triggerDvaAllocationSms($value, $fee_groupID, $branchID);
+                        } else {
+                            $blocked[] = $value;
+                        }
                     }
                 }
             }
             if (!empty($delStudent)) {
                 $this->db->where_in('student_id', $delStudent);
                 $this->db->where('group_id', $fee_groupID);
-                $this->db->where('session_id', get_session_id());
+                $this->db->where('session_id', $sessionId);
                 $this->db->delete('fee_allocation');
             }
 
-            $message = translate('information_has_been_saved_successfully');
-            $array = array('status' => 'success', 'message' => $message);
+            if (!empty($blocked)) {
+                $message = count($blocked) . ' student(s) skipped — already have a same-type fee allocated for this term.';
+                $array = array('status' => 'warning', 'message' => $message);
+            } else {
+                $message = translate('information_has_been_saved_successfully');
+                $array = array('status' => 'success', 'message' => $message);
+            }
             echo json_encode($array);
         }
     }
@@ -495,12 +605,23 @@ class Fees extends Admin_Controller
         if (!get_permission('invoice', 'is_view')) {
             access_denied();
         }
-
         $branchID = $this->application_model->get_branch_id();
-        if ($this->input->post('search')) {
-            $this->data['class_id'] = $this->input->post('class_id');
-            $this->data['section_id'] = $this->input->post('section_id');
-            $this->data['invoicelist'] = $this->fees_model->getInvoiceList($this->data['class_id'], $this->data['section_id'], $branchID);
+        if ($_POST) {
+            if (is_superadmin_loggedin()) {
+                $this->form_validation->set_rules('branch_id', translate('branch'), 'trim|required');
+            }
+            $this->form_validation->set_rules('class_id', translate('class'), 'trim');
+            $this->form_validation->set_rules('section_id', translate('section'), 'trim');
+            if ($this->form_validation->run() == true) {
+                $export_title = get_type_name_by_id('branch', $branchID) . ' - ' . translate('invoice_list');
+                $array = array('status' => 'success', 'export_title' => $export_title,'error' => '');
+            } else {
+                $error = $this->form_validation->error_array();
+                $array = array('status' => 'fail','error' => $error);
+                
+            }
+            echo json_encode($array);
+            exit();
         }
         $this->data['branch_id'] = $branchID;
         $this->data['title'] = translate('payments_history');
@@ -509,7 +630,27 @@ class Fees extends Admin_Controller
         $this->load->view('layout/index', $this->data);
     }
 
-    public function invoice_delete($student_id)
+    public function getInvoiceListDT()
+    {
+        if ($_POST) {
+            if (get_permission('invoice', 'is_view')) {
+                $submit_btn = $this->input->post('submit_btn');
+                if (empty($submit_btn)) {
+                    $json_data = array(
+                        "draw"                => intval(0),
+                        "recordsTotal"        => intval(0),
+                        "recordsFiltered"     => intval(0),
+                        "data"                => [],
+                    );
+                    echo json_encode($json_data);
+                } else {
+                    echo $this->fees_model->getInvoiceList();
+                }
+            }
+        }
+    }
+
+    public function invoice_delete($enrollID = '')
     {
         if (!get_permission('invoice', 'is_delete')) {
             access_denied();
@@ -518,7 +659,7 @@ class Fees extends Admin_Controller
         if (!is_superadmin_loggedin()) {
             $this->db->where('branch_id', get_loggedin_branch_id());
         }
-        $this->db->where('student_id', $student_id);
+        $this->db->where('student_id', $enrollID);
         $result = $this->db->get('fee_allocation')->result_array();
         foreach ($result as $key => $value) {
             $this->db->where('allocation_id', $value['id']);
@@ -528,21 +669,25 @@ class Fees extends Admin_Controller
         if (!is_superadmin_loggedin()) {
             $this->db->where('branch_id', get_loggedin_branch_id());
         }
-        $this->db->where('student_id', $student_id);
+        $this->db->where('student_id', $enrollID);
         $this->db->delete('fee_allocation');
     }
 
     /* invoice user interface with information are controlled here */
-    public function invoice($id = '')
+    public function invoice($enrollID = '')
     {
         if (!get_permission('invoice', 'is_view')) {
             access_denied();
         }
-        $basic = $this->fees_model->getInvoiceBasic($id);
+        $basic = $this->fees_model->getInvoiceBasic($enrollID);
         if (empty($basic))
             redirect(base_url('dashboard'));
-        $this->data['invoice'] = $this->fees_model->getInvoiceStatus($id);
-        $this->data['basic'] = $this->fees_model->getInvoiceBasic($id);
+
+        if (moduleIsEnabled('transport')) {
+            $this->data['transport_fees'] = $this->fees_model->getStudentTransportFees($enrollID, $basic['stoppage_point_id']);
+        }
+        $this->data['invoice'] = $this->fees_model->getInvoiceStatus($enrollID);
+        $this->data['basic'] = $basic;
         $this->data['title'] = translate('invoice_history');
         $this->data['main_menu'] = 'fees';
         $this->data['sub_page'] = 'fees/collect';
@@ -560,20 +705,59 @@ class Fees extends Admin_Controller
         }
     }
 
-    public function wallet_reconciliation()
+    public function invoicePDFdownload()
     {
-        if (!get_permission('fees_reports', 'is_view')) {
+        if (!get_permission('invoice', 'is_view')) {
             access_denied();
         }
-        $branchID = $this->application_model->get_branch_id();
-        $this->data['wallets']           = $this->fees_model->getWalletReconciliation($branchID);
-        $this->data['parent_wallets']    = $this->fees_model->getParentWalletReconciliation($branchID);
-        $this->data['unmatched_gateway'] = $this->fees_model->getUnmatchedGatewayPayments($branchID);
-        $this->data['branch_id']         = $branchID;
-        $this->data['title']             = 'DVA Wallet Reconciliation';
-        $this->data['sub_page']   = 'fees/wallet_reconciliation';
-        $this->data['main_menu']  = 'fees';
-        $this->load->view('layout/index', $this->data);
+        if ($_POST) {
+            $this->data['student_array'] = $this->input->post('student_id');
+            $html = $this->load->view('fees/invoicePDFdownload', $this->data, true);
+
+            $this->load->library('html2pdf');
+            $this->html2pdf->mpdf->WriteHTML(file_get_contents(base_url('assets/vendor/bootstrap/css/bootstrap.min.css')), 1);
+            $this->html2pdf->mpdf->WriteHTML(file_get_contents(base_url('assets/css/custom-style.css')), 1);
+            $this->html2pdf->mpdf->WriteHTML(file_get_contents(base_url('assets/css/ramom.css')), 1);
+            $this->html2pdf->mpdf->WriteHTML($html);
+            $this->html2pdf->mpdf->SetDisplayMode('fullpage');
+            $this->html2pdf->mpdf->baseScript        = 1;
+            $this->html2pdf->mpdf->autoScriptToLang  = true;
+            $this->html2pdf->mpdf->autoLangToFont    = true;
+            header("Content-Type: application/pdf");
+            echo $this->html2pdf->mpdf->Output('', "S");
+        }
+    }
+
+    public function pdf_sendByemail()
+    {
+        if (!get_permission('invoice', 'is_view')) {
+            access_denied();
+        }
+        if ($_POST) {
+            $this->data['student_array'] = [$this->input->post('enrollID')];
+            $html = $this->load->view('fees/invoicePDFdownload', $this->data, true);
+            $this->load->library('html2pdf');
+            $this->html2pdf->mpdf->WriteHTML(file_get_contents(base_url('assets/vendor/bootstrap/css/bootstrap.min.css')), 1);
+            $this->html2pdf->mpdf->WriteHTML(file_get_contents(base_url('assets/css/custom-style.css')), 1);
+            $this->html2pdf->mpdf->WriteHTML(file_get_contents(base_url('assets/css/ramom.css')), 1);
+            $this->html2pdf->mpdf->WriteHTML($html);
+            $this->html2pdf->mpdf->SetDisplayMode('fullpage');
+            $this->html2pdf->mpdf->autoScriptToLang  = true;
+            $this->html2pdf->mpdf->baseScript        = 1;
+            $this->html2pdf->mpdf->autoLangToFont    = true;
+
+            $file = $this->html2pdf->mpdf->Output(time() . '.pdf', "S");
+            $data['file'] = $file;
+            $data['enroll_id'] = $this->input->post('enrollID');
+            $response = $this->email_model->emailPDF_Fee_invoice($data);
+            if ($response == true) {
+                $array = array('status' => 'success', 'message' => translate('mail_sent_successfully'));
+            } else {
+                $array = array('status' => 'error', 'message' => translate('something_went_wrong'));
+
+            }
+            echo json_encode($array);
+        }
     }
 
     public function due_invoice()
@@ -581,35 +765,107 @@ class Fees extends Admin_Controller
         if (!get_permission('due_invoice', 'is_view')) {
             access_denied();
         }
-        $branchID        = $this->application_model->get_branch_id();
-        $activeSessionID = get_session_id();
-
-        $years = $this->db->order_by('id', 'DESC')->get('schoolyear')->result();
-        $sessionList = [];
-        foreach ($years as $y) {
-            $sessionList[$y->id] = $y->school_year . ($y->id == $activeSessionID ? ' (Current)' : '');
+        $branchID = $this->application_model->get_branch_id();
+        if ($_POST) {
+                if (is_superadmin_loggedin()) {
+                    $this->form_validation->set_rules('branch_id', translate('branch'), 'trim|required');
+                }
+                $this->form_validation->set_rules('class_id', translate('class'), 'trim|required');
+                $this->form_validation->set_rules('section_id', translate('section'), 'trim|required');
+                $this->form_validation->set_rules('fees_type', translate('fees_type'), 'trim|required');
+                if ($this->form_validation->run() == true) {
+                    $export_title = get_type_name_by_id('branch', $branchID) . ' - ' . translate('due_invoice') . " " . translate('list');
+                    $array = array('status' => 'success', 'export_title' => $export_title,'error' => '');
+                } else {
+                    $error = $this->form_validation->error_array();
+                    $array = array('status' => 'fail','error' => $error);
+                }
+                echo json_encode($array);
+                exit();
         }
-
-        if ($this->input->post('search')) {
-            $this->data['class_id']   = $this->input->post('class_id');
-            $this->data['section_id'] = $this->input->post('section_id');
-            $sessionID = (int)($this->input->post('session_id') ?: $activeSessionID);
-            $term      = $this->input->post('term') ?: '';
-            $this->data['session_id'] = $sessionID;
-            $this->data['term']       = $term;
-            $this->data['invoicelist'] = $this->fees_model->getDueInvoiceList(
-                $this->data['class_id'], $this->data['section_id'], $sessionID, $term
-            );
-        }
-
-        $this->data['session_list']  = $sessionList;
-        $this->data['session_id']    = isset($this->data['session_id']) ? $this->data['session_id'] : $activeSessionID;
-        $this->data['term']          = isset($this->data['term']) ? $this->data['term'] : '';
-        $this->data['branch_id']     = $branchID;
-        $this->data['title']         = translate('due_fees_invoice');
-        $this->data['sub_page']      = 'fees/due_invoice';
-        $this->data['main_menu']     = 'fees';
+        $this->data['branch_id'] = $branchID;
+        $this->data['title'] = translate('payments_history');
+        $this->data['sub_page'] = 'fees/due_invoice';
+        $this->data['main_menu'] = 'fees';
         $this->load->view('layout/index', $this->data);
+    }
+
+    public function getDueInvoiceListDT()
+    {
+        if ($_POST) {
+            if (get_permission('due_invoice', 'is_view')) {
+                $branchID = $this->application_model->get_branch_id();
+                $class_id = $this->input->post('class_id');
+                $section_id = $this->input->post('section_id');
+                $submit_btn = $this->input->post('submit_btn');
+
+                if (empty($submit_btn)) {
+                    $json_data = array(
+                        "draw"                => intval(0),
+                        "recordsTotal"        => intval(0),
+                        "recordsFiltered"     => intval(0),
+                        "data"                => [],
+                    );
+                    echo json_encode($json_data);
+                } else {
+                    $feegroup = explode("|", $this->input->post('fees_type'));
+                    $feegroup_id = $feegroup[0];
+                    $fee_feetype_id = $feegroup[1];
+
+                    $results = $this->fees_model->getDueInvoiceDT_list($class_id, $section_id, $feegroup_id, $fee_feetype_id);
+                    $records = array();
+                    $records = json_decode($results);
+                    $dt_data = array();
+                    foreach ($records->data as $key => $record) {
+
+                        $paid = $record->total_amount + $record->total_discount;
+                        $prev_due = empty($record->prev_due) ? 0 : $record->prev_due;
+                        if ((float)($record->full_amount + $prev_due) <= (float)$paid) {
+
+                        } else {
+                            // actions btn
+                            $actions = "";
+                            if (get_permission('collect_fees', 'is_add')) {
+                                $actions .= '<a href="' . base_url('fees/invoice/' . $record->enroll_id) . '" class="btn btn-default btn-circle"><i class="far fa-arrow-alt-circle-right"></i> ' . translate('collect') . '</a>';
+                            }
+                            if (get_permission('invoice', 'is_delete')) {
+                                $actions .=  btn_delete('fees/invoice_delete/' . $record->enroll_id);
+                            }
+
+                            // getting fees group list
+                            $feegroup = $this->fees_model->getfeeGroup($record->enroll_id);
+                            $groupList = '';
+                            foreach ($feegroup as $key => $value) {
+                                $groupList .= "- " . $value['name'] . "<br>";
+                            }
+
+                            // dt-data array 
+                            $row   = array();
+                            $row[] = '<div class="checked-area"><div class="checkbox-replace"><label class="i-checks"><input type="checkbox" name="student_id[]" value="' . $record->enroll_id  . '"><i></i></label></div></div>';
+                            $row[] = $record->first_name . ' ' . $record->last_name;
+                            $row[] = $record->register_no;
+                            $row[] = $record->roll;
+                            $row[] = $record->mobileno;
+                            $row[] = $groupList;
+                            $row[] = _d($record->due_date);
+                            $row[] = currencyFormat($record->full_amount);
+                            $row[] = currencyFormat($record->total_amount);
+                            $row[] = currencyFormat($record->total_discount);
+                            $row[] = currencyFormat($record->full_amount - $paid);
+                            $row[] = $actions;
+                            $dt_data[] = $row;
+                        }
+                    }
+                    $json_data = array(
+                        "draw"                => intval($records->draw),
+                        "recordsTotal"        => intval($records->recordsTotal),
+                        "recordsFiltered"     => intval($records->recordsFiltered),
+                        "data"                => $dt_data,
+                    );
+                    echo json_encode($json_data);
+                }
+            }
+        }
     }
 
     public function fee_add()
@@ -630,7 +886,6 @@ class Fees extends Admin_Controller
             $date = $this->input->post('date');
             $payVia = $this->input->post('pay_via');
             $arrayFees = array(
-                'receipt_no'   => $this->fees_model->generateReceiptNo(),
                 'allocation_id' => $feesType[0],
                 'type_id' => $feesType[1],
                 'collect_by' => get_loggedin_user_id(),
@@ -641,6 +896,12 @@ class Fees extends Admin_Controller
                 'remarks' => $this->input->post('remarks'),
                 'date' => $date,
             );
+            // transport fees data processing
+            if ($feesType[0] == 'transport') {
+                $arrayFees['allocation_id'] = NULL;
+                $arrayFees['type_id'] = NULL;
+                $arrayFees['transport_fee_details_id'] = $feesType[1];
+            }
             $this->db->insert('fee_payment_history', $arrayFees);
             $payment_historyID = $this->db->insert_id();
 
@@ -680,10 +941,17 @@ class Fees extends Admin_Controller
             $fine = 0;
         } else {
             $feesType = explode("|", $input);
-            $fine = $this->fees_model->feeFineCalculation($feesType[0], $feesType[1]);
-            $b = $this->fees_model->getBalance($feesType[0], $feesType[1]);
-            $balance = $b['balance'];
-            $fine = abs($fine - $b['fine']);
+            if ($feesType[0] == 'transport') {
+                $fine = $this->fees_model->transportFeeFineCalculation($feesType[1], $feesType[2]);
+                $b = $this->fees_model->getTransportBalance($feesType[1]);
+                $balance = $b['balance'];
+                $fine = abs($fine - $b['fine']);
+            } else {
+                $fine = $this->fees_model->feeFineCalculation($feesType[0], $feesType[1]);
+                $b = $this->fees_model->getBalance($feesType[0], $feesType[1]);
+                $balance = $b['balance'];
+                $fine = abs($fine - $b['fine']);
+            }
         }
         echo json_encode(array('balance' => $balance, 'fine' => $fine));
     }
@@ -697,6 +965,13 @@ class Fees extends Admin_Controller
             $this->db->where('session_id', get_session_id());
             $this->db->where('branch_id', $branchID);
             $result = $this->db->get('fee_groups')->result_array();
+
+            if (moduleIsEnabled('transport')) {
+                $this->db->where('branch_id', $branchID);
+                $this->db->where('session_id', get_session_id());
+                $this->db->order_by('month', 'asc');
+                $transport_results = $this->db->get('transport_fee_fine')->result();
+            }
             if (count($result)) {
                 $html .= "<option value=''>" . translate('select') . "</option>";
                 foreach ($result as $row) {
@@ -704,10 +979,18 @@ class Fees extends Admin_Controller
                     $this->db->where('fee_groups_id', $row['id']);
                     $resultdetails = $this->db->get('fee_groups_details')->result_array();
                     foreach ($resultdetails as $t) {
-                        $sel = ($t['fee_groups_id'] . "|" . $t['fee_type_id'] == $typeID ? 'selected' : '');
+                        $sel = ($t['fee_groups_id'] . "|" . $t['fee_type_id'] == $typeID ? ' selected ' : '');
                         $html .= '<option value="' . $t['fee_groups_id'] . "|" . $t['fee_type_id'] . '"' . $sel . '>' . get_type_name_by_id('fees_type', $t['fee_type_id']) . '</option>';
                     }
                     $html .= '</optgroup>';
+                }
+                if (!empty($transport_results)) {
+                    $getMonths = $this->app_lib->getMonthslist();
+                    $html .= '<optgroup label="' . translate('transport_fees') . '">';
+                    foreach ($transport_results as $t_key => $t_value) {
+                        $sel = ("transport|" . $t_value->id == $typeID ? ' selected ' : '');
+                        $html .= '<option value="' . "transport|" . $t_value->id . '"' . $sel . '>' . translate('transport_fees') ." - ". $getMonths[$t_value->month] . '</option>';
+                    }
                 }
             } else {
                 $html .= '<option value="">' . translate('no_information_available') . '</option>';
@@ -854,40 +1137,16 @@ class Fees extends Admin_Controller
             access_denied();
         }
         $branchID = $this->application_model->get_branch_id();
-
-        $years = $this->db->order_by('id', 'DESC')->get('schoolyear')->result();
-        $sessionList = [];
-        $activeSessionID = get_session_id();
-        foreach ($years as $y) {
-            $sessionList[$y->id] = $y->school_year . ($y->id == $activeSessionID ? ' (Current)' : '');
-        }
-
         if ($this->input->post('search')) {
-            $this->data['class_id']   = $this->input->post('class_id');
+            $this->data['class_id'] = $this->input->post('class_id');
             $this->data['section_id'] = $this->input->post('section_id');
-            $dueBefore  = $this->input->post('due_before');
-            $due_before = (!empty($dueBefore)) ? date('Y-m-d', strtotime($dueBefore)) : '';
-            $sessPost   = (int)($this->input->post('session_id') ?: 0) ?: null;
-            $term       = $this->input->post('term') ?: '';
-            $this->data['invoicelist'] = $this->fees_model->getDueReport(
-                $this->data['class_id'],
-                $this->data['section_id'],
-                $branchID,
-                $due_before,
-                $sessPost,
-                $term
-            );
+            $this->data['term'] = $this->input->post('term') ?? '';
+            $this->data['invoicelist'] = $this->fees_model->getDueReport($this->data['class_id'], $this->data['section_id'], $this->data['term']);
         }
-        $this->data['branch_id']      = $branchID;
-        $this->data['session_list']   = $sessionList;
-        $this->data['active_session'] = $activeSessionID;
-        $this->data['title']          = translate('due_fees_report');
-        $this->data['sub_page']       = 'fees/due_report';
-        $this->data['main_menu']      = 'fees_reports';
-        $this->data['headerelements'] = array(
-            'css' => array('vendor/daterangepicker/daterangepicker.css'),
-            'js'  => array('vendor/moment/moment.js', 'vendor/daterangepicker/daterangepicker.js'),
-        );
+        $this->data['branch_id'] = $branchID;
+        $this->data['title'] = translate('due_fees_report');
+        $this->data['sub_page'] = 'fees/due_report';
+        $this->data['main_menu'] = 'fees_repots';
         $this->load->view('layout/index', $this->data);
     }
 
@@ -897,39 +1156,18 @@ class Fees extends Admin_Controller
             access_denied();
         }
         $branchID = $this->application_model->get_branch_id();
-
-        $years = $this->db->order_by('id', 'DESC')->get('schoolyear')->result();
-        $sessionList = [];
-        $activeSessionID = get_session_id();
-        foreach ($years as $y) {
-            $sessionList[$y->id] = $y->school_year . ($y->id == $activeSessionID ? ' (Current)' : '');
-        }
-
         if ($this->input->post('search')) {
-            $classID    = $this->input->post('class_id');
-            $sectionID  = $this->input->post('section_id');
+            $classID = $this->input->post('class_id');
             $paymentVia = $this->input->post('payment_via');
-            $daterange  = explode(' - ', $this->input->post('daterange'));
-            $start      = date("Y-m-d", strtotime($daterange[0]));
-            $end        = date("Y-m-d", strtotime($daterange[1]));
-            $sessPost   = (int)($this->input->post('session_id') ?: 0) ?: null;
-            $term       = $this->input->post('term') ?: '';
-
-            $rows = $this->fees_model->getStuPaymentHistory($classID, $sectionID, $paymentVia, $start, $end, $branchID, false, $sessPost, $term);
-            $this->data['invoicelist'] = $rows;
-            $this->data['totals'] = [
-                'amount'   => array_sum(array_column($rows, 'amount')),
-                'discount' => array_sum(array_column($rows, 'discount')),
-                'fine'     => array_sum(array_column($rows, 'fine')),
-                'net'      => array_sum(array_column($rows, 'amount')) + array_sum(array_column($rows, 'fine')) - array_sum(array_column($rows, 'discount')),
-            ];
+            $daterange = explode(' - ', $this->input->post('daterange'));
+            $start = date("Y-m-d", strtotime($daterange[0]));
+            $end = date("Y-m-d", strtotime($daterange[1]));
+            $this->data['invoicelist'] = $this->fees_model->getStuPaymentHistory($classID, "", $paymentVia, $start, $end, $branchID);
         }
-        $this->data['branch_id']      = $branchID;
-        $this->data['session_list']   = $sessionList;
-        $this->data['active_session'] = $activeSessionID;
-        $this->data['title']          = translate('fees_payment_history');
-        $this->data['sub_page']       = 'fees/payment_history';
-        $this->data['main_menu']      = 'fees_reports';
+        $this->data['branch_id'] = $branchID;
+        $this->data['title'] = translate('fees_payment_history');
+        $this->data['sub_page'] = 'fees/payment_history';
+        $this->data['main_menu'] = 'fees_repots';
         $this->data['headerelements'] = array(
             'css' => array(
                 'vendor/daterangepicker/daterangepicker.css',
@@ -948,41 +1186,29 @@ class Fees extends Admin_Controller
             access_denied();
         }
         $branchID = $this->application_model->get_branch_id();
-
-        $years = $this->db->order_by('id', 'DESC')->get('schoolyear')->result();
-        $sessionList = [];
-        $activeSessionID = get_session_id();
-        foreach ($years as $y) {
-            $sessionList[$y->id] = $y->school_year . ($y->id == $activeSessionID ? ' (Current)' : '');
-        }
-
         if ($this->input->post('search')) {
-            $classID   = $this->input->post('class_id');
+            $classID = $this->input->post('class_id');
             $sectionID = $this->input->post('section_id');
-            $sessPost  = (int)($this->input->post('session_id') ?: 0) ?: null;
-            $term      = $this->input->post('term') ?: '';
-
-            $rows = $this->fees_model->getStudentFeeStatus($classID, $sectionID, $branchID, $sessPost, $term);
-            $this->data['invoicelist'] = $rows;
-
-            $expected = array_sum(array_column($rows, 'expected'));
-            $paid     = array_sum(array_column($rows, 'net_paid'));
-            $this->data['summary'] = [
-                'expected'        => $expected,
-                'collected'       => $paid,
-                'outstanding'     => $expected - $paid,
-                'collection_rate' => $expected > 0 ? round(($paid / $expected) * 100, 1) : 0,
-                'count_paid'      => count(array_filter($rows, function($r) { return $r['status'] === 'paid'; })),
-                'count_partial'   => count(array_filter($rows, function($r) { return $r['status'] === 'partial'; })),
-                'count_owing'     => count(array_filter($rows, function($r) { return $r['status'] === 'owing'; })),
-            ];
+            $enroll_id = $this->input->post('enroll_id');
+            $typeID = $this->input->post('fees_type');
+            $daterange = explode(' - ', $this->input->post('daterange'));
+            $start = date("Y-m-d", strtotime($daterange[0]));
+            $end = date("Y-m-d", strtotime($daterange[1]));
+            $this->data['invoicelist'] = $this->fees_model->getStuPaymentReport($classID, $sectionID, $enroll_id, $typeID, $start, $end, $branchID);
         }
-        $this->data['branch_id']      = $branchID;
-        $this->data['session_list']   = $sessionList;
-        $this->data['active_session'] = $activeSessionID;
-        $this->data['title']          = translate('student_fees_report');
-        $this->data['sub_page']       = 'fees/student_fees_report';
-        $this->data['main_menu']      = 'fees_reports';
+        $this->data['branch_id'] = $branchID;
+        $this->data['title'] = translate('student_fees_report');
+        $this->data['sub_page'] = 'fees/student_fees_report';
+        $this->data['main_menu'] = 'fees_repots';
+        $this->data['headerelements'] = array(
+            'css' => array(
+                'vendor/daterangepicker/daterangepicker.css',
+            ),
+            'js' => array(
+                'vendor/moment/moment.js',
+                'vendor/daterangepicker/daterangepicker.js',
+            ),
+        );
         $this->load->view('layout/index', $this->data);
     }
 
@@ -992,36 +1218,19 @@ class Fees extends Admin_Controller
             access_denied();
         }
         $branchID = $this->application_model->get_branch_id();
-
-        $years = $this->db->order_by('id', 'DESC')->get('schoolyear')->result();
-        $sessionList = [];
-        $activeSessionID = get_session_id();
-        foreach ($years as $y) {
-            $sessionList[$y->id] = $y->school_year . ($y->id == $activeSessionID ? ' (Current)' : '');
-        }
-
         if ($this->input->post('search')) {
-            $classID    = $this->input->post('class_id');
-            $sectionID  = $this->input->post('section_id');
+            $classID = $this->input->post('class_id');
+            $sectionID = $this->input->post('section_id');
             $paymentVia = $this->input->post('payment_via');
-            $daterange  = explode(' - ', $this->input->post('daterange'));
-            $start      = date("Y-m-d", strtotime($daterange[0]));
-            $end        = date("Y-m-d", strtotime($daterange[1]));
-            $sessPost   = (int)($this->input->post('session_id') ?: 0) ?: null;
-            $term       = $this->input->post('term') ?: '';
-
-            $rows = $this->fees_model->getStuPaymentHistory($classID, $sectionID, $paymentVia, $start, $end, $branchID, true, $sessPost, $term);
-            $this->data['invoicelist'] = $rows;
-            $this->data['totals'] = [
-                'fine' => array_sum(array_column($rows, 'fine')),
-            ];
+            $daterange = explode(' - ', $this->input->post('daterange'));
+            $start = date("Y-m-d", strtotime($daterange[0]));
+            $end = date("Y-m-d", strtotime($daterange[1]));
+            $this->data['invoicelist'] = $this->fees_model->getStuPaymentHistory($classID, $sectionID, $paymentVia, $start, $end, $branchID, true);
         }
-        $this->data['branch_id']      = $branchID;
-        $this->data['session_list']   = $sessionList;
-        $this->data['active_session'] = $activeSessionID;
-        $this->data['title']          = translate('fees_fine_reports');
-        $this->data['sub_page']       = 'fees/fine_report';
-        $this->data['main_menu']      = 'fees_reports';
+        $this->data['branch_id'] = $branchID;
+        $this->data['title'] = translate('fees_fine_reports');
+        $this->data['sub_page'] = 'fees/fine_report';
+        $this->data['main_menu'] = 'fees_repots';
         $this->data['headerelements'] = array(
             'css' => array(
                 'vendor/daterangepicker/daterangepicker.css',
@@ -1047,19 +1256,6 @@ class Fees extends Admin_Controller
 
             $feeDetails = $this->db->select('id,amount,fine')->where('id', $value)->get('fee_payment_history')->row();
             if (!empty($feeDetails)) {
-                // fee_payment_history has no branch_id of its own - trace
-                // ownership through fee_allocation before reverting a
-                // payment/adjusting balances for it.
-                if (!is_superadmin_loggedin()) {
-                    $paymentBranch = $this->db->select('fee_allocation.branch_id')
-                        ->from('fee_payment_history')
-                        ->join('fee_allocation', 'fee_allocation.id = fee_payment_history.allocation_id')
-                        ->where('fee_payment_history.id', $value)
-                        ->get()->row();
-                    if (empty($paymentBranch) || $paymentBranch->branch_id != get_loggedin_branch_id()) {
-                        continue;
-                    }
-                }
 
                 $amount = ($feeDetails->amount + $feeDetails->fine);
 
@@ -1067,14 +1263,12 @@ class Fees extends Admin_Controller
                 $transactionsDetails = $this->db->query($sql)->row();
                 if (!empty($transactionsDetails)) {
 
-                    $sql = "UPDATE `transactions` SET `amount` = `amount` + $amount, `cr` = `cr` - $amount, `bal` = `bal` - $amount WHERE `id` = " . $this->db->escape($transactionsDetails->transactions_id);
+                    $sql = "UPDATE `transactions` SET `amount` = `amount` - $amount, `cr` = `cr` - $amount, `bal` = `bal` - $amount WHERE `id` = " . $this->db->escape($transactionsDetails->transactions_id);
                     $this->db->query($sql);
 
                     $sql = "UPDATE `accounts` SET `balance` = `balance` - $amount WHERE `id` = " . $this->db->escape($transactionsDetails->account_id);
                     $this->db->query($sql);
 
-
-                 
                     /*$this->db->set('amount', 'amount+' . $amount, false);
                     $this->db->set('cr', 'cr-' . $amount, false);
                     $this->db->set('bal', 'bal-' . $amount, false);
@@ -1084,11 +1278,7 @@ class Fees extends Admin_Controller
                     $this->db->set('balance', 'balance-' . $amount, false);
                     $this->db->where('id', $transactionsDetails->account_id);
                     $this->db->update('accounts');*/
-                    
                 }
-
-
-
                 $this->db->where('id', $value);
                 $this->db->delete('fee_payment_history');
             }
@@ -1107,6 +1297,9 @@ class Fees extends Admin_Controller
             $date = $this->input->post('date');
             $payVia = $this->input->post('pay_via');
             $invoiceID = $this->input->post('invoice_id');
+            $basic = $this->fees_model->getInvoiceBasic($invoiceID);
+            if (empty($basic))
+                ajax_access_denied();
 
             $allocations = $this->fees_model->getInvoiceDetails($invoiceID);
             $totalBalance = 0;
@@ -1120,7 +1313,6 @@ class Fees extends Admin_Controller
                     $totalBalance += $b['balance'];
                     $totalFine += $fine;
                     $arrayFees = array(
-                        'receipt_no'   => $this->fees_model->generateReceiptNo(),
                         'allocation_id' => $row['allocation_id'],
                         'type_id' => $row['fee_type_id'],
                         'collect_by' => get_loggedin_user_id(),
@@ -1132,7 +1324,34 @@ class Fees extends Admin_Controller
                         'date' => $date,
                     );
                     $this->db->insert('fee_payment_history', $arrayFees);
+                }
+            }
 
+            if (moduleIsEnabled('transport')) {
+                $transport_fees = $this->fees_model->getStudentTransportFees($invoiceID, $basic['stoppage_point_id']);
+                foreach ($transport_fees as $key => $value) {
+                    $fine = $this->fees_model->transportFeeFineCalculation($value->id);
+                    $b = $this->fees_model->getTransportBalance($value->id);
+                    $balance = $b['balance'];
+                    $fine = abs($fine - $b['fine']);
+                
+                    if ($b['balance'] != 0) {
+                        $totalBalance += $b['balance'];
+                        $totalFine += $fine;
+                        $arrayFees = array(
+                            'allocation_id' => NULL,
+                            'type_id' => NULL,
+                            'transport_fee_details_id' => $value->id,
+                            'collect_by' => get_loggedin_user_id(),
+                            'amount' => $b['balance'],
+                            'discount' => 0,
+                            'fine' => $fine,
+                            'pay_via' => $payVia,
+                            'remarks' => $this->input->post('remarks'),
+                            'date' => $date,
+                        );
+                        $this->db->insert('fee_payment_history', $arrayFees);
+                    }
                 }
             }
 
@@ -1189,7 +1408,11 @@ class Fees extends Admin_Controller
             $total_balance = 0;
             $total_amount = 0;
             foreach ($record_array as $key => $value) {
-                $deposit = $this->fees_model->getStudentFeeDeposit($value->allocationID, $value->feeTypeID);
+                if ($value->feeType == 'general') {
+                    $deposit = $this->fees_model->getStudentFeeDeposit($value->allocationID, $value->feeTypeID);
+                } elseif ($value->feeType == 'transport') {
+                    $deposit = $this->fees_model->getStudentTransportFeeDeposit($value->trans_fd_id);
+                }
                 $full_amount = $value->feeAmount;
                 $type_discount = $deposit['total_discount'];
                 $type_fine = $deposit['total_fine'];
@@ -1240,20 +1463,40 @@ class Fees extends Admin_Controller
             if (isset($value['account_id'])) {
                 $this->form_validation->set_rules('collect_fees[' . $key . '][account_id]', translate('account'), 'trim|required');
             }
-            $remainAmount = $this->fees_model->getBalance($value['allocation_id'], $value['type_id']);
-            if ($remainAmount['balance'] < $value['amount']) {
-                $error = array('collect_fees[' . $key . '][amount]' => 'Amount cannot be greater than the remaining.');
-                $array = array('status' => 'fail', 'error' => $error);
-                echo json_encode($array);
-                exit;
-            }
 
-            $remainAmount = $this->fees_model->getBalance($value['allocation_id'], $value['type_id']);
-            if ($remainAmount['balance'] < $value['discount_amount']) {
-                $error = array('collect_fees[' . $key . '][discount_amount]' => 'Amount cannot be greater than the remaining.');
-                $array = array('status' => 'fail', 'error' => $error);
-                echo json_encode($array);
-                exit;
+            if ($value['fee_type'] == 'general') {
+                $remainAmount = $this->fees_model->getBalance($value['allocation_id'], $value['type_id']);
+                if ($remainAmount['balance'] < $value['amount']) {
+                    $error = array('collect_fees[' . $key . '][amount]' => 'Amount cannot be greater than the remaining.');
+                    $array = array('status' => 'fail', 'error' => $error);
+                    echo json_encode($array);
+                    exit;
+                }
+
+                $remainAmount = $this->fees_model->getBalance($value['allocation_id'], $value['type_id']);
+                if ($remainAmount['balance'] < $value['discount_amount']) {
+                    $error = array('collect_fees[' . $key . '][discount_amount]' => 'Amount cannot be greater than the remaining.');
+                    $array = array('status' => 'fail', 'error' => $error);
+                    echo json_encode($array);
+                    exit;
+                }
+            } elseif($value['fee_type'] == 'transport') {
+                // transport fees data processing
+                $remainAmount = $this->fees_model->getTransportBalance($value['trans_fd_id']);
+                if ($remainAmount['balance'] < $value['amount']) {
+                    $error = array('collect_fees[' . $key . '][amount]' => 'Amount cannot be greater than the remaining.');
+                    $array = array('status' => 'fail', 'error' => $error);
+                    echo json_encode($array);
+                    exit;
+                }
+
+                $remainAmount = $this->fees_model->getTransportBalance($value['trans_fd_id']);
+                if ($remainAmount['balance'] < $value['discount_amount']) {
+                    $error = array('collect_fees[' . $key . '][discount_amount]' => 'Amount cannot be greater than the remaining.');
+                    $array = array('status' => 'fail', 'error' => $error);
+                    echo json_encode($array);
+                    exit;
+                }  
             }
         }
 
@@ -1266,7 +1509,6 @@ class Fees extends Admin_Controller
                 $date = $value['date'];
                 $payVia = $value['pay_via'];
                 $arrayFees = array(
-                    'receipt_no'   => $this->fees_model->generateReceiptNo(),
                     'allocation_id' => $value['allocation_id'],
                     'type_id' => $value['type_id'],
                     'collect_by' => get_loggedin_user_id(),
@@ -1277,6 +1519,12 @@ class Fees extends Admin_Controller
                     'remarks' => $value['remarks'],
                     'date' => $date,
                 );
+                // transport fees data processing
+                if ($value['fee_type'] == 'transport') {
+                    $arrayFees['allocation_id'] = NULL;
+                    $arrayFees['type_id'] = NULL;
+                    $arrayFees['transport_fee_details_id'] = $value['trans_fd_id'];
+                }
                 $this->db->insert('fee_payment_history', $arrayFees);
 
                 // transaction voucher save function
@@ -1317,569 +1565,40 @@ class Fees extends Admin_Controller
         }
     }
 
-    /* student dva list by class and section */
-    public function dedicated_virtual_accounts_reports()
-    {
-        if (!get_permission('fees_reports', 'is_view')) {
-            access_denied();
-        }
-        $branchID = $this->application_model->get_branch_id();
-        if (isset($_POST['search'])) {
-            $classID   = $this->input->post('class_id');
-            $sectionID = $this->input->post('section_id');
-            $students  = $this->application_model->getStudentDVAListByClassSection($classID, $sectionID, $branchID, false, true);
-            $student_ids = array_column($students, 'student_id');
-            $financials  = $this->fees_model->getDVAFinancialByStudents($student_ids);
-            foreach ($students as &$s) {
-                $fin = $financials[$s['student_id']] ?? [];
-                $s['total_received']    = isset($fin['total_received']) ? (float)$fin['total_received'] : 0.0;
-                $s['last_payment_date'] = $fin['last_payment_date'] ?? null;
-            }
-            unset($s);
-            $this->data['students'] = $students;
-        }
-        $this->data['branch_id'] = $branchID;
-        $this->data['title'] = translate('dedicated_virtual_account');
-        $this->data['main_menu'] = 'fees';
-        $this->data['sub_page'] = 'fees/dedicated_virtual_accounts_reports';
-        $this->load->view('layout/index', $this->data);
-    }
-
-    public function dva_transaction_history()
-    {
-        if (!get_permission('fees_reports', 'is_view')) {
-            access_denied();
-        }
-        $branchID = $this->application_model->get_branch_id();
-        $start = $end = '';
-        if ($this->input->post('search')) {
-            $daterange = explode(' - ', $this->input->post('daterange'));
-            $start = date('Y-m-d', strtotime($daterange[0]));
-            $end   = date('Y-m-d', strtotime($daterange[1]));
-        }
-        $this->data['transactions'] = $this->fees_model->getDVATransactionHistory($branchID, $start, $end);
-        $this->data['branch_id']  = $branchID;
-        $this->data['title']      = translate('dva_transaction_history');
-        $this->data['sub_page']   = 'fees/dva_transaction_history';
-        $this->data['main_menu']  = 'fees_reports';
-        $this->data['headerelements'] = [
-            'css' => ['vendor/daterangepicker/daterangepicker.css'],
-            'js'  => ['vendor/moment/moment.js', 'vendor/daterangepicker/daterangepicker.js'],
-        ];
-        $this->load->view('layout/index', $this->data);
-    }
-
-    public function dva_sync()
-    {
-        if (!get_permission('fees_reports', 'is_view')) {
-            access_denied();
-        }
-        $branchID = $this->application_model->get_branch_id();
-
-        if ($this->input->is_ajax_request()) {
-            $action = $this->input->post('action');
-
-            if ($action === 'fetch') {
-                $this->load->library('Paystack_utility');
-                $this->paystack_utility->initialize($branchID);
-                $secretKey = $this->paystack_utility->api_config['paystack_secret_key'] ?? '';
-
-                if (empty($secretKey)) {
-                    echo json_encode(['status' => false, 'message' => 'Paystack secret key not configured for this branch.']);
-                    return;
-                }
-
-                // Paginate through all dedicated accounts on Paystack
-                $allDvas = [];
-                $page    = 1;
-                do {
-                    $ch = curl_init("https://api.paystack.co/dedicated_account?perPage=100&page={$page}");
-                    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-                    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
-                    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
-                    curl_setopt($ch, CURLOPT_HTTPHEADER, [
-                        'Authorization: Bearer ' . $secretKey,
-                        'Content-Type: application/json',
-                    ]);
-                    $decoded = json_decode(curl_exec($ch), true);
-                    curl_close($ch);
-                    if (empty($decoded['status']) || empty($decoded['data'])) break;
-                    foreach ($decoded['data'] as $d) {
-                        $email = strtolower($d['customer']['email'] ?? '');
-                        if ($email) $allDvas[$email] = $d;
-                    }
-                    $page++;
-                } while (count($decoded['data']) === 100);
-
-                $students  = $this->_dva_unsynced_students($branchID);
-                $matched   = [];
-                $notFound  = [];
-                foreach ($students as $stu) {
-                    $email          = strtolower($stu['email'] ?? '');
-                    $generatedEmail = strtolower($stu['first_name'] . '.' . $stu['last_name'] . '@clemmyschools.com');
-                    $dva            = $allDvas[$email] ?? $allDvas[$generatedEmail] ?? null;
-
-                    if (!$dva) {
-                        $notFound[] = [
-                            'student_name' => $stu['first_name'] . ' ' . $stu['last_name'],
-                            'class'        => $stu['class_name'],
-                            'section'      => $stu['section_name'],
-                            'register_no'  => $stu['register_no'],
-                            'email_tried'  => $email ?: $generatedEmail,
-                        ];
-                        continue;
-                    }
-
-                    $assignedAt = $dva['assignment']['assigned_at'] ?? '';
-                    $expiredAt  = $dva['assignment']['expired_at']  ?? '';
-
-                    $matched[] = [
-                        'student_id'      => $stu['id'],
-                        'student_name'    => $stu['first_name'] . ' ' . $stu['last_name'],
-                        'class'           => $stu['class_name'],
-                        'section'         => $stu['section_name'],
-                        'register_no'     => $stu['register_no'],
-                        'matched_email'   => $dva['customer']['email'],
-                        'account_number'  => $dva['account_number'],
-                        'account_name'    => $dva['account_name'],
-                        'bank'            => $dva['bank']['name'],
-                        'bank_id'         => $dva['bank']['id'],
-                        'customer_id'     => $dva['customer']['id'],
-                        'customer_code'   => $dva['customer']['customer_code'],
-                        'active'          => (int)($dva['active'] ?? 1),
-                        'account_id'      => $dva['id'],
-                        'currency'        => $dva['currency'] ?? 'NGN',
-                        'created_at'      => $dva['created_at'] ?? date('Y-m-d H:i:s'),
-                        'assigned_at'     => $assignedAt ?: '0000-00-00 00:00:00',
-                        'expired'         => (int)($dva['assignment']['expired'] ?? 0),
-                        'assignee_type'   => $dva['assignment']['assignee_type'] ?? '',
-                        'account_type'    => $dva['assignment']['account_type'] ?? '',
-                        'expired_at'      => $expiredAt ?: '0000-00-00 00:00:00',
-                        'assigned_status' => !empty($dva['assigned']) ? 'true' : 'false',
-                        'raw_response'    => json_encode($dva),
-                    ];
-                }
-
-                echo json_encode([
-                    'status'         => true,
-                    'matched'        => $matched,
-                    'not_found'      => $notFound,
-                    'total_unsynced' => count($students),
-                    'paystack_total' => count($allDvas),
-                ]);
-                return;
-            }
-
-            if ($action === 'import') {
-                $rows     = $this->input->post('rows');
-                $imported = 0;
-                $skipped  = 0;
-                if (!is_array($rows) || empty($rows)) {
-                    echo json_encode(['status' => false, 'message' => 'No rows supplied.']);
-                    return;
-                }
-                foreach ($rows as $r) {
-                    $studentID = (int)($r['student_id'] ?? 0);
-                    if (!$studentID) { $skipped++; continue; }
-                    if ($this->db->where('user_id', $studentID)->get('dedicated_virtual_account')->num_rows()) {
-                        $skipped++; continue;
-                    }
-                    $this->db->insert('dedicated_virtual_account', [
-                        'user_id'                  => $studentID,
-                        'customer_id'              => (int)($r['customer_id']  ?? 0),
-                        'customer_code'            => $r['customer_code']       ?? '',
-                        'dedicated_account_bank'   => $r['bank']                ?? '',
-                        'dedicated_account_bank_id'=> (int)($r['bank_id']      ?? 0),
-                        'account_name'             => $r['account_name']        ?? '',
-                        'account_number'           => $r['account_number']      ?? '',
-                        'assigned_status'          => $r['assigned_status']     ?? 'true',
-                        'currency'                 => $r['currency']            ?? 'NGN',
-                        'active'                   => (int)($r['active']        ?? 1),
-                        'account_id'               => (int)($r['account_id']   ?? 0),
-                        'created_at'               => $r['created_at']          ?? date('Y-m-d H:i:s'),
-                        'assignee_type'            => $r['assignee_type']       ?? '',
-                        'expired'                  => (int)($r['expired']       ?? 0),
-                        'account_type'             => $r['account_type']        ?? '',
-                        'assigned_at'              => $r['assigned_at']         ?: '0000-00-00 00:00:00',
-                        'expired_at'               => $r['expired_at']          ?: '0000-00-00 00:00:00',
-                        'assignment_expires_at'    => null,
-                        'raw_response'             => $r['raw_response']        ?? '',
-                    ]);
-                    $imported++;
-                }
-                echo json_encode(['status' => true, 'imported' => $imported, 'skipped' => $skipped]);
-                return;
-            }
-
-            echo json_encode(['status' => false, 'message' => 'Unknown action.']);
-            return;
-        }
-
-        // GET — show page
-        $this->data['unsynced_students'] = $this->_dva_unsynced_students($branchID);
-        $this->data['branch_id']  = $branchID;
-        $this->data['title']      = 'DVA Account Sync';
-        $this->data['sub_page']   = 'fees/dva_sync';
-        $this->data['main_menu']  = 'fees_reports';
-        $this->load->view('layout/index', $this->data);
-    }
-
-    private function _dva_unsynced_students($branchID)
-    {
-        return $this->db
-            ->select('s.id, s.first_name, s.last_name, s.email, sc.class_name, ss.section_name, s.register_no')
-            ->from('student s')
-            ->join('student_session sse', 'sse.student_id = s.id')
-            ->join('classes sc', 'sc.id = sse.class_id')
-            ->join('sections ss', 'ss.id = sse.section_id')
-            ->join('dedicated_virtual_account dva', 'dva.user_id = s.id', 'left')
-            ->where('sse.session_id', get_session_id())
-            ->where('sse.branch_id', $branchID)
-            ->where('dva.id IS NULL', null, false)
-            ->group_by('s.id')
-            ->order_by('sc.class_name, ss.section_name, s.last_name')
-            ->get()->result_array();
-    }
-
-    /*
-    Hafeez Lawal - 2025-01-21
-    Requirement 5: report that will list students without allocated fees per class filtered by all sections 
-    student fees invoice search user interface 
-    */
-    public function student_without_invoice_list()
-    {
-        if (!get_permission('invoice', 'is_view')) {
-            access_denied();
-        }
-
-        $branchID        = $this->application_model->get_branch_id();
-        $activeSessionID = get_session_id();
-
-        $years = $this->db->order_by('id', 'DESC')->get('schoolyear')->result();
-        $sessionList = [];
-        foreach ($years as $y) {
-            $sessionList[$y->id] = $y->school_year . ($y->id == $activeSessionID ? ' (Current)' : '');
-        }
-
-        if ($this->input->post('search')) {
-            $this->data['class_id']   = $this->input->post('class_id');
-            $this->data['section_id'] = $this->input->post('section_id');
-            $sessionID = (int)($this->input->post('session_id') ?: $activeSessionID);
-            $term      = $this->input->post('term') ?: '';
-            $this->data['session_id'] = $sessionID;
-            $this->data['term']       = $term;
-            $this->data['invoicelist'] = $this->fees_model->getStudentWithoutInvoiceList(
-                $this->data['class_id'], $this->data['section_id'], $branchID, $sessionID, $term
-            );
-        }
-
-        $this->data['session_list'] = $sessionList;
-        $this->data['session_id']   = isset($this->data['session_id']) ? $this->data['session_id'] : $activeSessionID;
-        $this->data['term']         = isset($this->data['term']) ? $this->data['term'] : '';
-        $this->data['branch_id']    = $branchID;
-        $this->data['title']        = translate('no_fees_allocated');
-        $this->data['sub_page']     = 'fees/student_without_invoice_list';
-        $this->data['main_menu']    = 'fees';
-        $this->load->view('layout/index', $this->data);
-    }
-
-    public function student_ledger($student_id = '')
-    {
-        if (!get_permission('fees_reports', 'is_view')) {
-            access_denied();
-        }
-        if (empty($student_id)) {
-            show_404();
-        }
-        $basic = $this->fees_model->getInvoiceBasic($student_id);
-        if (empty($basic)) {
-            access_denied();
-        }
-        if (!is_superadmin_loggedin()) {
-            if ((int)$basic['branch_id'] !== (int)get_loggedin_branch_id()) {
-                access_denied();
-            }
-        }
-        $ledger = $this->fees_model->getStudentLedger($student_id);
-        $sessRow = $this->db->select('school_year')->where('id', get_session_id())->get('schoolyear')->row();
-        $this->data['basic']         = $basic;
-        $this->data['details']       = $ledger['details'];
-        $this->data['transactions']  = $ledger['transactions'];
-        $this->data['student_id']    = $student_id;
-        $this->data['session_label'] = $sessRow ? $sessRow->school_year : '';
-        $this->data['title']        = translate('student') . ' ' . translate('ledger');
-        $this->data['sub_page']     = 'fees/student_ledger';
-        $this->data['main_menu']    = 'fees_reports';
-        $this->load->view('layout/index', $this->data);
-    }
-
-    public function export_due_report_csv()
-    {
-        if (!get_permission('fees_reports', 'is_view')) {
-            access_denied();
-        }
-        $branchID  = $this->application_model->get_branch_id();
-        $classID   = $this->input->get('class_id');
-        $sectionID = $this->input->get('section_id');
-        $dueBefore = $this->input->get('due_before');
-        $due_before = (!empty($dueBefore)) ? date('Y-m-d', strtotime($dueBefore)) : '';
-
-        $rows = $this->fees_model->getDueReport($classID, $sectionID, $branchID, $due_before);
-
-        $filename = 'due_fees_report_' . date('Y-m-d') . '.csv';
-        header('Content-Type: text/csv');
-        header('Content-Disposition: attachment; filename="' . $filename . '"');
-        $out = fopen('php://output', 'w');
-        fputcsv($out, ['Student', 'Register No', 'Roll', 'Mobile', 'Class', 'Section',
-            'Total Fees', 'Paid', 'Discount', 'Fine', 'Balance']);
-        foreach ($rows as $r) {
-            $paid = $r['payment']['total_paid'] + $r['payment']['total_discount'];
-            if ((float)$r['total_fees'] <= (float)$paid) { continue; }
-            fputcsv($out, [
-                $r['first_name'] . ' ' . $r['last_name'],
-                $r['register_no'], $r['roll'], $r['mobileno'],
-                $r['class_name'], $r['section_name'],
-                $r['total_fees'], $r['payment']['total_paid'],
-                $r['payment']['total_discount'], $r['payment']['total_fine'],
-                $r['total_fees'] - $paid,
-            ]);
-        }
-        fclose($out);
-        exit;
-    }
-
-    public function export_payment_history_csv()
-    {
-        if (!get_permission('fees_reports', 'is_view')) {
-            access_denied();
-        }
-        $branchID   = $this->application_model->get_branch_id();
-        $classID    = $this->input->get('class_id', true) ?: '';
-        $paymentVia = $this->input->get('payment_via', true) ?: 'all';
-        $start      = date('Y-m-d', strtotime($this->input->get('start', true) ?: date('Y-m-01')));
-        $end        = date('Y-m-d', strtotime($this->input->get('end', true) ?: date('Y-m-d')));
-
-        $rows = $this->fees_model->getStuPaymentHistory($classID, '', $paymentVia, $start, $end, $branchID);
-
-        $filename = 'payment_history_' . $start . '_to_' . $end . '.csv';
-        header('Content-Type: text/csv');
-        header('Content-Disposition: attachment; filename="' . $filename . '"');
-        $out = fopen('php://output', 'w');
-        fputcsv($out, ['Receipt No', 'Date', 'Student', 'Register No', 'Class', 'Section',
-            'Fees Type', 'Payment Via', 'Amount', 'Discount', 'Fine', 'Net']);
-        foreach ($rows as $r) {
-            $net = ($r['amount'] + $r['fine']) - $r['discount'];
-            fputcsv($out, [
-                $r['receipt_no'] ?? '', $r['date'],
-                $r['first_name'] . ' ' . $r['last_name'],
-                $r['register_no'], $r['class_name'], $r['section_name'],
-                $r['type_name'], $r['pay_via'],
-                $r['amount'], $r['discount'], $r['fine'], $net,
-            ]);
-        }
-        fclose($out);
-        exit;
-    }
+    // ── Session Outstanding Report ────────────────────────────────────────────
 
     public function session_outstanding_report()
     {
         if (!get_permission('fees_reports', 'is_view')) {
             access_denied();
         }
-
-        // Superadmin picks branch via POST; non-superadmin is fixed to their branch
-        $branchID = is_superadmin_loggedin()
-            ? (int)$this->input->post('branch_id')
-            : (int)get_loggedin_branch_id();
-
-        $sessions  = $this->db->order_by('id', 'DESC')->get('schoolyear')->result_array();
-        $branches  = is_superadmin_loggedin()
-            ? $this->db->order_by('name')->get('branch')->result_array()
-            : [];
-
-        // Classes/sections: show branch-filtered list once branch is known, else all
-        $classQ  = $this->db->order_by('name');
-        $sectQ   = $this->db->order_by('name');
-        if ($branchID) {
-            $classQ->where('branch_id', $branchID);
-            $sectQ->where('branch_id', $branchID);
-        }
-        $classes  = $classQ->get('class')->result_array();
-        $sections = $sectQ->get('section')->result_array();
-
-        $rows    = [];
-        $searched = false;
-        $totals  = ['fee_charged' => 0, 'carried_forward' => 0, 'total_paid' => 0, 'outstanding' => 0];
+        $branchID = $this->application_model->get_branch_id();
 
         if ($this->input->post('search')) {
-            $searched  = true;
-            $sessionID = (int)$this->input->post('session_id');
-            $term      = $this->input->post('term');
-            $classID   = (int)$this->input->post('class_id');
-            $sectionID = (int)$this->input->post('section_id');
-
-            $rows = $this->fees_model->getSessionOutstandingReport($branchID, $sessionID, $term, $classID, $sectionID);
-            foreach ($rows as $r) {
-                $totals['fee_charged']     += $r['fee_charged'];
-                $totals['carried_forward'] += $r['carried_forward'];
-                $totals['total_paid']      += $r['total_paid'];
-                $totals['outstanding']     += $r['outstanding'];
-            }
+            $sessionID = $this->input->post('session_id') ?: get_session_id();
+            $term      = $this->input->post('term')       ?: '';
+            $classID   = $this->input->post('class_id')   ?: '';
+            $sectionID = $this->input->post('section_id') ?: '';
+            $this->data['results']    = $this->fees_model->getSessionOutstandingReport($branchID, $sessionID, $term, $classID, $sectionID);
+            $this->data['session_id'] = $sessionID;
+            $this->data['term']       = $term;
+            $this->data['class_id']   = $classID;
+            $this->data['section_id'] = $sectionID;
         }
 
-        $this->data['rows']       = $rows;
-        $this->data['totals']     = $totals;
-        $this->data['searched']   = $searched;
-        $this->data['sessions']   = $sessions;
-        $this->data['branches']   = $branches;
-        $this->data['classes']    = $classes;
-        $this->data['sections']   = $sections;
-        $this->data['branch_id']  = $branchID;
-        $this->data['title']      = 'Outstanding Balances by Session';
-        $this->data['sub_page']   = 'fees/session_outstanding_report';
-        $this->data['main_menu']  = 'fees_reports';
-        $this->data['headerelements'] = [
-            'js' => ['vendor/datatables/datatables.min.js'],
-            'css'=> ['vendor/datatables/datatables.min.css'],
-        ];
-        $this->load->view('layout/index', $this->data);
-    }
-
-    public function financial_overview()
-    {
-        if (!get_permission('fees_reports', 'is_view')) {
-            access_denied();
-        }
+        $this->data['branch_id'] = $branchID;
+        $this->data['sessions'] = $this->db->select('id, school_year AS session')->order_by('id','DESC')->get('schoolyear')->result_array();
+        $this->data['classes'] = $this->db->select('id, name')->where('branch_id', $branchID)->get('class')->result_array();
         if (is_superadmin_loggedin()) {
-            $branchID = $this->input->get('branch_id') ?: $this->input->post('branch_id');
-            if (empty($branchID)) {
-                $first = $this->db->select('id')->order_by('id', 'ASC')->limit(1)->get('branch')->row();
-                $branchID = $first ? (int)$first->id : 1;
-            }
-        } else {
-            $branchID = get_loggedin_branch_id();
+            $this->data['branches'] = $this->db->get('branch')->result_array();
         }
-        $daterange = $this->input->get('daterange') ?: '';
-        $start = $end = '';
-        if ($daterange) {
-            $parts = explode(' - ', $daterange);
-            $start = date('Y-m-d', strtotime(trim($parts[0])));
-            $end   = isset($parts[1]) ? date('Y-m-d', strtotime(trim($parts[1]))) : $start;
-        }
-
-        $sessionID = (int)($this->input->get('session_id') ?: 0) ?: null;
-        $term      = $this->input->get('term') ?: '';
-
-        // Build session list for dropdown
-        $years = $this->db->order_by('id', 'DESC')->get('schoolyear')->result();
-        $sessionList = [];
-        $activeSessionID = get_session_id();
-        foreach ($years as $y) {
-            $sessionList[$y->id] = $y->school_year . ($y->id == $activeSessionID ? ' (Current)' : '');
-        }
-
-        $this->data['overview']    = $this->fees_model->getFinancialOverview($branchID, $start, $end, $sessionID, $term);
-        $this->data['branch_id']   = $branchID;
-        $this->data['daterange']   = $daterange;
-        $this->data['session_id']  = $sessionID ?: $activeSessionID;
-        $this->data['session_list'] = $sessionList;
-        $this->data['term']        = $term;
-        $this->data['title']      = 'Financial Overview';
-        $this->data['sub_page']   = 'fees/financial_overview';
-        $this->data['main_menu']  = 'fees_reports';
-        $this->data['headerelements'] = [
-            'css' => ['vendor/daterangepicker/daterangepicker.css'],
-            'js'  => [
-                'vendor/moment/moment.js',
-                'vendor/daterangepicker/daterangepicker.js',
-                'vendor/chartjs/chart.min.js',
-            ],
-        ];
+        $this->data['title']    = translate('outstanding_balances');
+        $this->data['sub_page'] = 'fees/session_outstanding_report';
+        $this->data['main_menu'] = 'fees_repots';
         $this->load->view('layout/index', $this->data);
     }
 
-    public function financial_exceptions()
-    {
-        if (!get_permission('fees_reports', 'is_view')) {
-            access_denied();
-        }
-        $branchID = $this->application_model->get_branch_id();
-        $this->data['exceptions']  = $this->fees_model->getFinancialExceptions($branchID, 0);
-        $this->data['resolved']    = $this->fees_model->getFinancialExceptions($branchID, 1);
-        $this->data['branch_id']   = $branchID;
-        $this->data['title']       = 'Financial Exceptions';
-        $this->data['sub_page']    = 'fees/financial_exceptions';
-        $this->data['main_menu']   = 'fees_reports';
-        $this->load->view('layout/index', $this->data);
-    }
-
-    public function run_exception_detection()
-    {
-        if (!get_permission('fees_reports', 'is_view')) {
-            ajax_access_denied();
-        }
-        $branchID = $this->application_model->get_branch_id();
-        $count = $this->fees_model->detectAndSaveExceptions($branchID);
-        echo json_encode(['status' => 'success', 'new_exceptions' => $count]);
-    }
-
-    public function resolve_exception($id = 0)
-    {
-        if (!get_permission('fees_reports', 'is_view')) {
-            ajax_access_denied();
-        }
-        if (!$id) {
-            echo json_encode(['status' => 'fail']);
-            return;
-        }
-        $this->fees_model->resolveException($id, get_loggedin_user_id());
-        echo json_encode(['status' => 'success']);
-    }
-
-    public function classwise_fees_summary()
-    {
-        if (!get_permission('fees_reports', 'is_view')) {
-            access_denied();
-        }
-        $branchID = $this->application_model->get_branch_id();
-
-        $years = $this->db->order_by('id', 'DESC')->get('schoolyear')->result();
-        $sessionList = ['' => translate('select')];
-        foreach ($years as $y) {
-            $sessionList[$y->id] = $y->school_year;
-        }
-
-        if ($this->input->post('search')) {
-            $sessionID = (int)$this->input->post('session_id');
-            $classID   = $this->input->post('class_id');
-            $term      = $this->input->post('term') ?: '';
-
-            if ($sessionID > 0) {
-                $rows = $this->fees_model->getClasswiseFeesSummary($sessionID, $branchID, $classID, $term);
-                $this->data['rows']          = $rows;
-                $this->data['session_id']    = $sessionID;
-                $this->data['class_id']      = $classID;
-                $this->data['term']          = $term;
-                $this->data['session_label'] = $sessionList[$sessionID] ?? '';
-                $this->data['totals'] = [
-                    'enrolled'          => array_sum(array_column($rows, 'total_enrolled')),
-                    'expected'          => array_sum(array_column($rows, 'total_expected')),
-                    'collected'         => array_sum(array_column($rows, 'total_collected')),
-                    'outstanding'       => array_sum(array_column($rows, 'total_outstanding')),
-                    'students_paid'     => array_sum(array_column($rows, 'students_paid')),
-                    'students_not_paid' => array_sum(array_column($rows, 'students_not_paid')),
-                ];
-            }
-        }
-
-        $this->data['session_list'] = $sessionList;
-        $this->data['branch_id']    = $branchID;
-        $this->data['term']         = isset($this->data['term']) ? $this->data['term'] : '';
-        $this->data['title']        = 'Class-wise Fees Summary';
-        $this->data['sub_page']     = 'fees/classwise_fees_summary';
-        $this->data['main_menu']    = 'fees_reports';
-        $this->load->view('layout/index', $this->data);
-    }
+    // ── Section-wise Fees Summary ─────────────────────────────────────────────
 
     public function section_fees_summary()
     {
@@ -1888,282 +1607,673 @@ class Fees extends Admin_Controller
         }
         $branchID = $this->application_model->get_branch_id();
 
-        $years      = $this->db->order_by('id', 'DESC')->get('schoolyear')->result();
-        $currentSID = (int)get_session_id();
-        $sessionList = ['' => translate('select')];
-        foreach ($years as $y) {
-            $sessionList[$y->id] = $y->school_year . ($y->id == $currentSID ? ' (Current)' : '');
-        }
-
-        $term           = '';
-        $dateA          = date('Y-m-d', strtotime('-7 days'));
-        $dateB          = date('Y-m-d');
-        $includePrevDue = false;
-
         if ($this->input->post('search')) {
-            $sessionID      = (int)$this->input->post('session_id');
-            $term           = $this->input->post('term') ?: '';
-            $dateA          = $this->input->post('date_a') ?: $dateA;
-            $dateB          = $this->input->post('date_b') ?: $dateB;
-            $includePrevDue = (bool)$this->input->post('include_prev_due');
-
-            // Ensure dateA <= dateB
-            if ($dateA > $dateB) { [$dateA, $dateB] = [$dateB, $dateA]; }
-
-            if ($sessionID > 0) {
-                $rows = $this->fees_model->getSectionFeesSummary(
-                    $sessionID, $branchID, $term, $dateA, $dateB, $includePrevDue
-                );
-                $this->data['rows']          = $rows;
-                $this->data['session_id']    = $sessionID;
-                $this->data['session_label'] = $sessionList[$sessionID] ?? '';
-                $this->data['totals'] = [
-                    'enrolled'  => array_sum(array_column($rows, 'total_enrolled')),
-                    'expected'  => array_sum(array_column($rows, 'total_expected')),
-                    'paid_a'    => array_sum(array_column($rows, 'paid_a')),
-                    'balance_a' => array_sum(array_column($rows, 'balance_a')),
-                    'paid_b'    => array_sum(array_column($rows, 'paid_b')),
-                    'balance_b' => array_sum(array_column($rows, 'balance_b')),
-                ];
-            }
+            $sessionID      = $this->input->post('session_id')       ?: get_session_id();
+            $term           = $this->input->post('term')             ?: '';
+            $dateA          = $this->input->post('date_a')           ?: date('Y-m-d');
+            $dateB          = $this->input->post('date_b')           ?: date('Y-m-d');
+            $includePrevDue = (int) ($this->input->post('include_prev_due') ?: 0);
+            $this->data['results']         = $this->fees_model->getSectionFeesSummary($sessionID, $branchID, $term, $dateA, $dateB, $includePrevDue);
+            $this->data['session_id']      = $sessionID;
+            $this->data['term']            = $term;
+            $this->data['date_a']          = $dateA;
+            $this->data['date_b']          = $dateB;
+            $this->data['include_prev_due'] = $includePrevDue;
         }
 
-        // Load existing schedule config for this branch
-        $schedule = $this->db->where('branch_id', $branchID)->get('fee_report_schedules')->row_array();
-
-        $this->data['term']            = $term;
-        $this->data['date_a']          = $dateA;
-        $this->data['date_b']          = $dateB;
-        $this->data['include_prev_due'] = $includePrevDue;
-        $this->data['session_list']    = $sessionList;
-        $this->data['branch_id']       = $branchID;
-        $this->data['schedule']        = $schedule ?: [];
-        $this->data['title']           = 'Section-wise Fees Summary';
-        $this->data['sub_page']        = 'fees/section_fees_summary';
-        $this->data['main_menu']       = 'fees_reports';
+        $this->data['branch_id'] = $branchID;
+        $this->data['sessions'] = $this->db->select('id, school_year AS session')->order_by('id','DESC')->get('schoolyear')->result_array();
+        if (is_superadmin_loggedin()) {
+            $this->data['branches'] = $this->db->get('branch')->result_array();
+        }
+        $this->data['title']    = translate('section_fees_summary');
+        $this->data['sub_page'] = 'fees/section_fees_summary';
+        $this->data['main_menu'] = 'fees_repots';
         $this->load->view('layout/index', $this->data);
     }
 
-    public function section_fees_summary_save_schedule()
-    {
-        if (!get_permission('fees_reports', 'is_view') || !is_superadmin_loggedin()) {
-            show_error('Access denied', 403);
-        }
-        $branchID = $this->application_model->get_branch_id();
+    // ── DVA Account Sync ──────────────────────────────────────────────────────
 
-        $data = [
-            'branch_id'       => $branchID,
-            'session_id'      => (int)$this->input->post('sched_session_id'),
-            'term'            => $this->input->post('sched_term') ?: '',
-            'include_prev_due'=> (int)(bool)$this->input->post('sched_include_prev_due'),
-            'day_of_week'     => (int)$this->input->post('sched_day_of_week'),
-            'recipients_email'=> strip_tags($this->input->post('sched_recipients_email') ?: ''),
-            'recipients_wa'   => strip_tags($this->input->post('sched_recipients_wa') ?: ''),
-            'active'          => 1,
-        ];
-
-        $existing = $this->db->where('branch_id', $branchID)->get('fee_report_schedules')->row();
-        if ($existing) {
-            $this->db->where('branch_id', $branchID)->update('fee_report_schedules', $data);
-        } else {
-            $this->db->insert('fee_report_schedules', $data);
-        }
-
-        $this->session->set_flashdata('success', 'Weekly report schedule saved.');
-        redirect('fees/section_fees_summary');
-    }
-
-    // Called by server cron: fees/send_weekly_report/{branch_id}/{token}
-    public function send_weekly_report($branchID = 0, $token = '')
-    {
-        $branchID = (int)$branchID;
-        $schedule = $this->db->where('branch_id', $branchID)->where('active', 1)->get('fee_report_schedules')->row_array();
-        if (empty($schedule)) {
-            echo "No active schedule for branch $branchID\n"; exit;
-        }
-
-        // Simple token check: sha256(branch_id + encryption_key)
-        $expected = hash('sha256', $branchID . config_item('encryption_key'));
-        if (!hash_equals($expected, $token)) {
-            show_error('Forbidden', 403);
-        }
-
-        $today   = date('Y-m-d');
-        $weekAgo = date('Y-m-d', strtotime('-7 days'));
-        $rows    = $this->fees_model->getSectionFeesSummary(
-            $schedule['session_id'], $branchID,
-            $schedule['term'], $weekAgo, $today,
-            (bool)$schedule['include_prev_due']
-        );
-
-        if (empty($rows)) {
-            echo "No data to send.\n"; exit;
-        }
-
-        $sessionLabel = $this->db->select('school_year')->where('id', $schedule['session_id'])->get('schoolyear')->row()->school_year ?? '';
-        $subject      = "Weekly Fees Collection Report – {$schedule['term']} {$sessionLabel} ({$today})";
-        $body         = $this->_build_report_email_html($rows, $schedule['term'], $sessionLabel, $weekAgo, $today);
-
-        $sent = 0;
-        foreach (array_filter(array_map('trim', explode(',', $schedule['recipients_email']))) as $email) {
-            $this->load->model('email_model');
-            $ok = $this->email_model->sendEmail([
-                'branch_id' => $branchID,
-                'recipient' => $email,
-                'subject'   => $subject,
-                'message'   => $body,
-            ]);
-            if ($ok) $sent++;
-        }
-
-        $this->db->where('branch_id', $branchID)->update('fee_report_schedules', ['last_sent_at' => date('Y-m-d H:i:s')]);
-        echo "Sent to $sent email recipient(s).\n";
-    }
-
-    private function _build_report_email_html($rows, $term, $sessionLabel, $dateA, $dateB)
-    {
-        $html  = '<html><body style="font-family:Arial,sans-serif;font-size:13px">';
-        $html .= '<h2 style="color:#333">Fee Collection Report</h2>';
-        $html .= "<p><strong>Term:</strong> " . htmlspecialchars($term ?: 'All Terms') . " &nbsp; <strong>Session:</strong> " . htmlspecialchars($sessionLabel) . "</p>";
-        $html .= "<p><strong>Period:</strong> Up to " . date('d M Y', strtotime($dateA)) . " vs. up to " . date('d M Y', strtotime($dateB)) . "</p>";
-        $html .= '<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;width:100%">';
-        $html .= '<thead style="background:#f0f0f0"><tr>';
-        $html .= '<th>Class</th><th>Section</th><th>Students</th><th>Expected</th>';
-        $html .= '<th>Paid (' . date('d/m/y', strtotime($dateA)) . ')</th><th>Balance</th>';
-        $html .= '<th>Paid (' . date('d/m/y', strtotime($dateB)) . ')</th><th>Balance</th>';
-        $html .= '</tr></thead><tbody>';
-
-        $prevClass = null;
-        $classTot  = [];
-        foreach ($rows as $r) {
-            $cid = $r['class_id'];
-            if (!isset($classTot[$cid])) {
-                $classTot[$cid] = ['name'=>$r['class_name'],'enrolled'=>0,'expected'=>0,'paid_a'=>0,'balance_a'=>0,'paid_b'=>0,'balance_b'=>0];
-            }
-            $classTot[$cid]['enrolled']  += $r['total_enrolled'];
-            $classTot[$cid]['expected']  += $r['total_expected'];
-            $classTot[$cid]['paid_a']    += $r['paid_a'];
-            $classTot[$cid]['balance_a'] += $r['balance_a'];
-            $classTot[$cid]['paid_b']    += $r['paid_b'];
-            $classTot[$cid]['balance_b'] += $r['balance_b'];
-        }
-
-        foreach ($rows as $r) {
-            if ($prevClass !== null && $prevClass !== $r['class_id']) {
-                $ct = $classTot[$prevClass];
-                $html .= '<tr style="background:#e8e8e8;font-weight:bold">';
-                $html .= '<td colspan="2">' . htmlspecialchars($ct['name']) . ' TOTAL</td>';
-                $html .= '<td>' . $ct['enrolled'] . '</td><td>' . number_format($ct['expected']) . '</td>';
-                $html .= '<td>' . number_format($ct['paid_a']) . '</td><td>' . number_format($ct['balance_a']) . '</td>';
-                $html .= '<td>' . number_format($ct['paid_b']) . '</td><td>' . number_format($ct['balance_b']) . '</td>';
-                $html .= '</tr>';
-            }
-            $prevClass = $r['class_id'];
-            $html .= '<tr>';
-            $html .= '<td>' . htmlspecialchars($r['class_name']) . '</td><td>' . htmlspecialchars($r['section_name']) . '</td>';
-            $html .= '<td>' . $r['total_enrolled'] . '</td><td>' . number_format($r['total_expected']) . '</td>';
-            $html .= '<td>' . number_format($r['paid_a']) . '</td><td>' . number_format($r['balance_a']) . '</td>';
-            $html .= '<td>' . number_format($r['paid_b']) . '</td><td>' . number_format($r['balance_b']) . '</td>';
-            $html .= '</tr>';
-        }
-        if ($prevClass !== null) {
-            $ct = $classTot[$prevClass];
-            $html .= '<tr style="background:#e8e8e8;font-weight:bold">';
-            $html .= '<td colspan="2">' . htmlspecialchars($ct['name']) . ' TOTAL</td>';
-            $html .= '<td>' . $ct['enrolled'] . '</td><td>' . number_format($ct['expected']) . '</td>';
-            $html .= '<td>' . number_format($ct['paid_a']) . '</td><td>' . number_format($ct['balance_a']) . '</td>';
-            $html .= '<td>' . number_format($ct['paid_b']) . '</td><td>' . number_format($ct['balance_b']) . '</td>';
-            $html .= '</tr>';
-        }
-
-        $grandEnrolled = array_sum(array_column($rows, 'total_enrolled'));
-        $grandExpected = array_sum(array_column($rows, 'total_expected'));
-        $grandPaidA    = array_sum(array_column($rows, 'paid_a'));
-        $grandBalA     = array_sum(array_column($rows, 'balance_a'));
-        $grandPaidB    = array_sum(array_column($rows, 'paid_b'));
-        $grandBalB     = array_sum(array_column($rows, 'balance_b'));
-
-        $html .= '<tr style="background:#333;color:#fff;font-weight:bold">';
-        $html .= '<td colspan="2">GRAND TOTAL</td>';
-        $html .= '<td>' . $grandEnrolled . '</td><td>' . number_format($grandExpected) . '</td>';
-        $html .= '<td>' . number_format($grandPaidA) . '</td><td>' . number_format($grandBalA) . '</td>';
-        $html .= '<td>' . number_format($grandPaidB) . '</td><td>' . number_format($grandBalB) . '</td>';
-        $html .= '</tr>';
-        $html .= '</tbody></table></body></html>';
-        return $html;
-    }
-
-    public function export_classwise_fees_csv()
+    public function dva_sync()
     {
         if (!get_permission('fees_reports', 'is_view')) {
             access_denied();
         }
-        $branchID  = $this->application_model->get_branch_id();
-        $sessionID = (int)$this->input->get('session_id');
-        $classID   = $this->input->get('class_id');
+        $branchID = $this->application_model->get_branch_id();
+        $action   = $this->input->post('action') ?: $this->input->get('action');
 
-        if (!$sessionID) {
-            show_error('session_id required', 400);
+        if ($action === 'fetch') {
+            // Pull all dedicated accounts from Paystack API (paginated).
+            $config    = $this->get_payment_config();
+            $secretKey = $config['paystack_secret_key'] ?? '';
+            if (empty($secretKey)) {
+                echo json_encode(['status' => 'error', 'message' => 'Paystack secret key not configured.']);
+                return;
+            }
+            $allAccounts = [];
+            $page = 1;
+            do {
+                $url = "https://api.paystack.co/dedicated_account?perPage=100&page={$page}";
+                $ch  = curl_init();
+                curl_setopt($ch, CURLOPT_URL, $url);
+                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+                curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+                curl_setopt($ch, CURLOPT_HTTPHEADER, ['Authorization: Bearer ' . $secretKey]);
+                $raw  = curl_exec($ch);
+                $err  = curl_error($ch);
+                curl_close($ch);
+                if ($err || !$raw) {
+                    echo json_encode(['status' => 'error', 'message' => 'Paystack API error: ' . $err]);
+                    return;
+                }
+                $resp = json_decode($raw, true);
+                if (empty($resp['status'])) {
+                    echo json_encode(['status' => 'error', 'message' => $resp['message'] ?? 'API returned error.']);
+                    return;
+                }
+                $batch = $resp['data'] ?? [];
+                $allAccounts = array_merge($allAccounts, $batch);
+                $meta  = $resp['meta'] ?? [];
+                $total = (int)($meta['total'] ?? 0);
+                $page++;
+            } while (count($allAccounts) < $total && count($batch) === 100);
+
+            // Cross-reference against local students to find unsynced ones.
+            $unsynced = $this->_dva_unsynced_students($branchID, $allAccounts);
+            echo json_encode(['status' => 'ok', 'total_fetched' => count($allAccounts), 'unsynced' => $unsynced]);
+            return;
         }
 
-        $years = $this->db->order_by('id', 'DESC')->get('schoolyear')->result();
-        $sessionLabel = '';
-        foreach ($years as $y) {
-            if ((int)$y->id === $sessionID) {
-                $sessionLabel = $y->school_year;
-                break;
+        if ($action === 'import') {
+            $rows    = $this->input->post('rows');
+            $imported = 0;
+            $skipped  = 0;
+            if (is_array($rows)) {
+                foreach ($rows as $row) {
+                    $userID = (int)($row['user_id'] ?? 0);
+                    if (!$userID) { $skipped++; continue; }
+                    // Skip if already exists for this user.
+                    $exists = $this->db->where('user_id', $userID)->count_all_results('dedicated_virtual_account');
+                    if ($exists) { $skipped++; continue; }
+                    $this->db->insert('dedicated_virtual_account', [
+                        'user_id'                  => $userID,
+                        'customer_id'              => (int)($row['customer_id']      ?? 0),
+                        'customer_code'            => $row['customer_code']           ?? '',
+                        'dedicated_account_bank'   => $row['bank_name']              ?? '',
+                        'dedicated_account_bank_id'=> $row['bank_id']               ?? '',
+                        'account_name'             => $row['account_name']           ?? '',
+                        'account_number'           => $row['account_number']         ?? '',
+                        'assigned_status'          => $row['assigned_status']        ?? 'assigned',
+                        'currency'                 => $row['currency']               ?? 'NGN',
+                        'active'                   => 1,
+                        'account_id'               => (int)($row['account_id']       ?? 0),
+                        'created_at'               => date('Y-m-d H:i:s'),
+                        'assignee_type'            => $row['assignee_type']          ?? '',
+                        'expired'                  => 0,
+                        'account_type'             => $row['account_type']           ?? '',
+                        'assigned_at'              => date('Y-m-d H:i:s'),
+                        'expired_at'               => '0000-00-00 00:00:00',
+                        'assignment_expires_at'    => null,
+                        'raw_response'             => $row['raw_response']           ?? '',
+                    ]);
+                    $imported++;
+                }
+            }
+            echo json_encode(['status' => 'ok', 'imported' => $imported, 'skipped' => $skipped]);
+            return;
+        }
+
+        // Default: render the page.
+        $this->data['branch_id']  = $branchID;
+        $this->data['csrf_data']  = json_encode(csrf_jquery_token());
+        $this->data['title']      = 'DVA Account Sync';
+        $this->data['sub_page']   = 'fees/dva_sync';
+        $this->data['main_menu']  = 'fees_repots';
+        $this->load->view('layout/index', $this->data);
+    }
+
+    /**
+     * Returns Paystack DVA accounts that don't yet have a matching row in
+     * dedicated_virtual_account for the given branch, matched by student email.
+     */
+    private function _dva_unsynced_students($branchID, array $allAccounts)
+    {
+        if (empty($allAccounts)) return [];
+
+        // Build email→student map for this branch.
+        $students = $this->db
+            ->select('s.id AS student_id, s.email, s.first_name, s.last_name, s.register_no')
+            ->from('student s')
+            ->join('enroll e', 'e.student_id = s.id', 'inner')
+            ->where('e.branch_id', $branchID)
+            ->where('s.active', 1)
+            ->group_by('s.id')
+            ->get()->result_array();
+        $emailMap = [];
+        foreach ($students as $s) {
+            if (!empty($s['email'])) {
+                $emailMap[strtolower(trim($s['email']))] = $s;
             }
         }
 
-        $rows = $this->fees_model->getClasswiseFeesSummary($sessionID, $branchID, $classID);
+        // Already-synced user IDs.
+        $synced = $this->db->select('user_id')->get('dedicated_virtual_account')->result_array();
+        $syncedIDs = array_flip(array_column($synced, 'user_id'));
 
-        $filename = 'classwise_fees_' . preg_replace('/[^a-z0-9]/i', '_', $sessionLabel) . '.csv';
-        header('Content-Type: text/csv');
-        header('Content-Disposition: attachment; filename="' . $filename . '"');
-        header('Pragma: no-cache');
-
-        $out = fopen('php://output', 'w');
-        fputcsv($out, ['Class-wise Fees Summary — ' . $sessionLabel]);
-        fputcsv($out, []);
-        fputcsv($out, [
-            'Class', 'Enrolled', 'Expected (NGN)', 'Collected (NGN)',
-            'Outstanding (NGN)', 'Collection Rate (%)', 'Students Paid', 'Students Unpaid',
-        ]);
-
-        $totEnrolled = $totExpected = $totCollected = $totOutstanding = $totPaid = $totUnpaid = 0;
-        foreach ($rows as $r) {
-            $rate = $r['total_expected'] > 0
-                ? round(($r['total_collected'] / $r['total_expected']) * 100, 1)
-                : 0;
-            fputcsv($out, [
-                $r['class_name'],
-                $r['total_enrolled'],
-                number_format($r['total_expected'], 2, '.', ''),
-                number_format($r['total_collected'], 2, '.', ''),
-                number_format($r['total_outstanding'], 2, '.', ''),
-                $rate,
-                $r['students_paid'],
-                $r['students_not_paid'],
-            ]);
-            $totEnrolled    += $r['total_enrolled'];
-            $totExpected    += $r['total_expected'];
-            $totCollected   += $r['total_collected'];
-            $totOutstanding += $r['total_outstanding'];
-            $totPaid        += $r['students_paid'];
-            $totUnpaid      += $r['students_not_paid'];
+        $unsynced = [];
+        foreach ($allAccounts as $acct) {
+            $cEmail = strtolower(trim($acct['customer']['email'] ?? ''));
+            if (!isset($emailMap[$cEmail])) continue;
+            $stu = $emailMap[$cEmail];
+            if (isset($syncedIDs[(int)$stu['student_id']])) continue;
+            $bank = $acct['bank'] ?? [];
+            $unsynced[] = [
+                'user_id'        => $stu['student_id'],
+                'register_no'    => $stu['register_no'],
+                'name'           => $stu['first_name'] . ' ' . $stu['last_name'],
+                'email'          => $cEmail,
+                'account_number' => $acct['account_number'] ?? '',
+                'account_name'   => $acct['account_name']   ?? '',
+                'bank_name'      => $bank['name']            ?? '',
+                'bank_id'        => (string)($bank['id']    ?? ''),
+                'customer_id'    => $acct['customer']['id'] ?? 0,
+                'customer_code'  => $acct['customer']['customer_code'] ?? '',
+                'account_id'     => $acct['id']              ?? 0,
+                'assigned_status'=> $acct['assigned']        ? 'assigned' : 'unassigned',
+                'currency'       => $acct['currency']        ?? 'NGN',
+                'assignee_type'  => $acct['assignee_type']   ?? '',
+                'account_type'   => $acct['account_type']    ?? '',
+                'raw_response'   => json_encode($acct),
+            ];
         }
-        $totRate = $totExpected > 0 ? round(($totCollected / $totExpected) * 100, 1) : 0;
-        fputcsv($out, [
-            'TOTAL',
-            $totEnrolled,
-            number_format($totExpected, 2, '.', ''),
-            number_format($totCollected, 2, '.', ''),
-            number_format($totOutstanding, 2, '.', ''),
-            $totRate,
-            $totPaid,
-            $totUnpaid,
-        ]);
-        fclose($out);
+        return $unsynced;
     }
 
+    // ── DVA Transaction History ───────────────────────────────────────────────
+
+    public function dva_transaction_history()
+    {
+        if (!get_permission('fees_reports', 'is_view')) {
+            access_denied();
+        }
+        $branchID = $this->application_model->get_branch_id();
+
+        if ($this->input->post('search')) {
+            $start = $this->input->post('start_date') ?: date('Y-m-01');
+            $end   = $this->input->post('end_date')   ?: date('Y-m-d');
+            $sql = "
+                SELECT pl.id, pl.reference, pl.paid_date, pl.amount, pl.customer_email,
+                       pl.authorization_bank, pl.authorization_sender_name, pl.authorization_narration,
+                       pl.status, s.first_name, s.last_name, s.register_no,
+                       dva.account_number, dva.dedicated_account_bank
+                FROM paystack_logs pl
+                LEFT JOIN dedicated_virtual_account dva ON dva.customer_id = pl.customer_id
+                LEFT JOIN student s ON s.id = dva.user_id
+                LEFT JOIN enroll  e ON e.student_id = s.id AND e.branch_id = " . (int)$branchID . "
+                WHERE pl.paid_date BETWEEN " . $this->db->escape($start . ' 00:00:00') . "
+                                        AND " . $this->db->escape($end   . ' 23:59:59') . "
+                  AND (s.id IS NULL OR e.branch_id = " . (int)$branchID . ")
+                ORDER BY pl.paid_date DESC
+            ";
+            $this->data['transactions'] = $this->db->query($sql)->result_array();
+            $this->data['start_date']   = $start;
+            $this->data['end_date']     = $end;
+        }
+
+        $this->data['branch_id'] = $branchID;
+        $this->data['title']     = 'DVA Transaction History';
+        $this->data['sub_page']  = 'fees/dva_transaction_history';
+        $this->data['main_menu'] = 'fees_repots';
+        $this->load->view('layout/index', $this->data);
+    }
+
+    // ── Financial Overview ────────────────────────────────────────────────────
+
+    public function financial_overview()
+    {
+        if (!get_permission('fees_reports', 'is_view')) {
+            access_denied();
+        }
+        $branchID  = $this->application_model->get_branch_id() ?: get_loggedin_branch_id() ?: 1;
+        $sessionID = get_session_id();
+
+        $sql = "
+            SELECT
+                IFNULL(SUM(fgd.amount + fa.prev_due), 0)          AS total_invoiced,
+                IFNULL(SUM(fph.amount - fph.discount), 0)         AS total_collected,
+                IFNULL(SUM(fph.fine), 0)                          AS total_fines,
+                IFNULL(SUM(fgd.amount + fa.prev_due), 0)
+                  - IFNULL(SUM(fph.amount - fph.discount), 0)     AS total_outstanding
+            FROM fee_allocation fa
+            INNER JOIN enroll e ON e.id = fa.student_id
+            LEFT JOIN fee_groups_details fgd ON fgd.fee_groups_id = fa.group_id
+            LEFT JOIN fee_payment_history fph ON fph.allocation_id = fa.id
+            WHERE fa.session_id = {$sessionID} AND e.branch_id = {$branchID}
+        ";
+        $summary = $this->db->query($sql)->row_array();
+
+        // Monthly collections for current session year.
+        $monthSql = "
+            SELECT DATE_FORMAT(fph.date, '%Y-%m') AS month_key,
+                   DATE_FORMAT(fph.date, '%b %Y') AS month_label,
+                   SUM(fph.amount - fph.discount) AS collected
+            FROM fee_payment_history fph
+            INNER JOIN fee_allocation fa ON fa.id = fph.allocation_id
+            INNER JOIN enroll e ON e.id = fa.student_id
+            WHERE fa.session_id = {$sessionID} AND e.branch_id = {$branchID}
+            GROUP BY DATE_FORMAT(fph.date, '%Y-%m')
+            ORDER BY month_key ASC
+        ";
+        $monthlyData = $this->db->query($monthSql)->result_array();
+
+        // Collection by payment channel (DVA vs cash vs other online).
+        $channelSql = "
+            SELECT
+                CASE
+                    WHEN fph.collect_by = 'online' AND fph.pay_via = 9 THEN 'DVA / Paystack'
+                    WHEN fph.collect_by = 'online'                     THEN 'Other Online'
+                    ELSE 'Cash / Offline'
+                END AS channel,
+                SUM(fph.amount - fph.discount) AS collected,
+                COUNT(*) AS txn_count
+            FROM fee_payment_history fph
+            INNER JOIN fee_allocation fa ON fa.id = fph.allocation_id
+            INNER JOIN enroll e ON e.id = fa.student_id
+            WHERE fa.session_id = {$sessionID} AND e.branch_id = {$branchID}
+            GROUP BY channel
+            ORDER BY collected DESC
+        ";
+        $channelData = $this->db->query($channelSql)->result_array();
+
+        // Top classes by outstanding balance.
+        $classSql = "
+            SELECT c.name AS class_name,
+                   COUNT(DISTINCT fa.student_id)                       AS student_count,
+                   IFNULL(SUM(fgd.amount + fa.prev_due), 0)           AS invoiced,
+                   IFNULL(SUM(fph.amount - fph.discount), 0)          AS collected,
+                   IFNULL(SUM(fgd.amount + fa.prev_due), 0)
+                     - IFNULL(SUM(fph.amount - fph.discount), 0)      AS outstanding
+            FROM fee_allocation fa
+            INNER JOIN enroll e ON e.id = fa.student_id
+            INNER JOIN class  c ON c.id = e.class_id
+            LEFT JOIN fee_groups_details   fgd ON fgd.fee_groups_id = fa.group_id
+            LEFT JOIN fee_payment_history  fph ON fph.allocation_id  = fa.id
+            WHERE fa.session_id = {$sessionID} AND e.branch_id = {$branchID}
+            GROUP BY c.id ORDER BY outstanding DESC LIMIT 10
+        ";
+        $classData = $this->db->query($classSql)->result_array();
+
+        $this->data['summary']      = $summary;
+        $this->data['monthly_data'] = $monthlyData;
+        $this->data['channel_data'] = $channelData;
+        $this->data['class_data']   = $classData;
+        $this->data['branch_id']    = $branchID;
+        $this->data['title']        = 'Financial Overview';
+        $this->data['sub_page']     = 'fees/financial_overview';
+        $this->data['main_menu']    = 'fees_repots';
+        $this->load->view('layout/index', $this->data);
+    }
+
+    // ── Financial Exceptions ──────────────────────────────────────────────────
+
+    public function financial_exceptions()
+    {
+        if (!get_permission('fees_reports', 'is_view')) {
+            access_denied();
+        }
+        $branchID  = $this->application_model->get_branch_id() ?: get_loggedin_branch_id() ?: 1;
+        $sessionID = get_session_id();
+
+        // 1. Payments that exceed the invoiced amount (overpayments).
+        $overSql = "
+            SELECT s.first_name, s.last_name, s.register_no, c.name AS class_name,
+                   SUM(fgd.amount + fa.prev_due)          AS invoiced,
+                   SUM(fph.amount - fph.discount)         AS paid,
+                   SUM(fph.amount - fph.discount)
+                     - SUM(fgd.amount + fa.prev_due)      AS overpaid
+            FROM fee_allocation fa
+            INNER JOIN enroll e  ON e.id  = fa.student_id
+            INNER JOIN student s ON s.id  = e.student_id
+            INNER JOIN class   c ON c.id  = e.class_id
+            LEFT JOIN fee_groups_details  fgd ON fgd.fee_groups_id = fa.group_id
+            LEFT JOIN fee_payment_history fph ON fph.allocation_id = fa.id
+            WHERE fa.session_id = {$sessionID} AND e.branch_id = {$branchID}
+            GROUP BY fa.student_id
+            HAVING overpaid > 0
+            ORDER BY overpaid DESC
+        ";
+        $overpayments = $this->db->query($overSql)->result_array();
+
+        // 2. Allocations with no payment at all (untouched invoices).
+        $unpaidSql = "
+            SELECT s.first_name, s.last_name, s.register_no, c.name AS class_name,
+                   sec.name AS section_name,
+                   SUM(fgd.amount + fa.prev_due) AS invoiced
+            FROM fee_allocation fa
+            INNER JOIN enroll  e   ON e.id   = fa.student_id
+            INNER JOIN student s   ON s.id   = e.student_id
+            INNER JOIN class   c   ON c.id   = e.class_id
+            INNER JOIN section sec ON sec.id  = e.section_id
+            LEFT JOIN fee_groups_details fgd ON fgd.fee_groups_id = fa.group_id
+            WHERE fa.session_id = {$sessionID} AND e.branch_id = {$branchID}
+              AND fa.id NOT IN (SELECT DISTINCT allocation_id FROM fee_payment_history)
+            GROUP BY fa.student_id
+            ORDER BY c.name, s.first_name
+        ";
+        $unpaidAllocations = $this->db->query($unpaidSql)->result_array();
+
+        // 3. DVA payments in paystack_logs not matched to a fee_payment_history row.
+        // Remarks format: 'Fees deposits online via DVA Wallet: {pl.id} for allocation {fa.id} at ...'
+        $unmatchedSql = "
+            SELECT pl.reference, pl.paid_date, pl.amount, pl.customer_email,
+                   pl.authorization_sender_name, pl.status
+            FROM paystack_logs pl
+            WHERE pl.status = 'success'
+            AND pl.id NOT IN (
+                SELECT DISTINCT CAST(
+                    SUBSTRING_INDEX(SUBSTRING_INDEX(remarks, 'DVA Wallet: ', -1), ' for ', 1)
+                    AS UNSIGNED)
+                FROM fee_payment_history
+                WHERE remarks LIKE '%DVA Wallet%'
+            )
+            ORDER BY pl.paid_date DESC
+            LIMIT 200
+        ";
+        $unmatchedDVA = $this->db->query($unmatchedSql)->result_array();
+
+        $this->data['overpayments']      = $overpayments;
+        $this->data['unpaid_allocations'] = $unpaidAllocations;
+        $this->data['unmatched_dva']     = $unmatchedDVA;
+        $this->data['branch_id']         = $branchID;
+        $this->data['title']             = 'Financial Exceptions';
+        $this->data['sub_page']          = 'fees/financial_exceptions';
+        $this->data['main_menu']         = 'fees_repots';
+        $this->load->view('layout/index', $this->data);
+    }
+
+    // ── Student Ledger ────────────────────────────────────────────────────────
+
+    public function student_ledger()
+    {
+        if (!get_permission('fees_reports', 'is_view')) {
+            access_denied();
+        }
+        $branchID = $this->application_model->get_branch_id();
+
+        if ($this->input->post('search')) {
+            $studentID = (int)$this->input->post('student_id');
+            $sessionID = (int)($this->input->post('session_id') ?: get_session_id());
+
+            if ($studentID) {
+                // Verify student belongs to this branch.
+                if (!is_superadmin_loggedin()) {
+                    $check = $this->db->where('student_id', $studentID)
+                        ->where('branch_id', $branchID)
+                        ->count_all_results('enroll');
+                    if (!$check) { access_denied(); }
+                }
+
+                $allocationSql = "
+                    SELECT fa.id AS allocation_id, fa.prev_due,
+                           fg.name AS group_name,
+                           SUM(fgd.amount) AS charged,
+                           IFNULL(paid_sub.paid, 0) AS paid,
+                           IFNULL(paid_sub.discount, 0) AS discount,
+                           SUM(fgd.amount) + fa.prev_due - IFNULL(paid_sub.paid, 0) AS balance
+                    FROM fee_allocation fa
+                    INNER JOIN fee_groups fg ON fg.id = fa.group_id
+                    LEFT JOIN fee_groups_details fgd ON fgd.fee_groups_id = fa.group_id
+                    LEFT JOIN (
+                        SELECT allocation_id,
+                               SUM(amount - discount) AS paid,
+                               SUM(discount)          AS discount
+                        FROM fee_payment_history
+                        GROUP BY allocation_id
+                    ) paid_sub ON paid_sub.allocation_id = fa.id
+                    WHERE fa.student_id = (SELECT id FROM enroll WHERE student_id = {$studentID} AND session_id = {$sessionID} LIMIT 1)
+                      AND fa.session_id = {$sessionID}
+                    GROUP BY fa.id
+                    ORDER BY fg.name
+                ";
+                $allocations = $this->db->query($allocationSql)->result_array();
+
+                $paymentSql = "
+                    SELECT fph.*, ft.name AS type_name, pt.name AS pay_via_name, fg.name AS group_name
+                    FROM fee_payment_history fph
+                    INNER JOIN fee_allocation fa ON fa.id = fph.allocation_id
+                    INNER JOIN fee_groups fg ON fg.id = fa.group_id
+                    LEFT JOIN fees_type ft ON ft.id = fph.type_id
+                    LEFT JOIN payment_types pt ON pt.id = fph.pay_via
+                    WHERE fa.student_id = (SELECT id FROM enroll WHERE student_id = {$studentID} AND session_id = {$sessionID} LIMIT 1)
+                      AND fa.session_id = {$sessionID}
+                    ORDER BY fph.date ASC, fph.id ASC
+                ";
+                $payments = $this->db->query($paymentSql)->result_array();
+
+                $student = $this->db->where('id', $studentID)->get('student')->row_array();
+                $dva     = $this->db->where('user_id', $studentID)->where('active', 1)
+                               ->get('dedicated_virtual_account')->row_array();
+
+                $this->data['allocations'] = $allocations;
+                $this->data['payments']    = $payments;
+                $this->data['student']     = $student;
+                $this->data['dva']         = $dva;
+                $this->data['session_id']  = $sessionID;
+                $this->data['student_id']  = $studentID;
+            }
+        }
+
+        $this->data['branch_id'] = $branchID;
+        $this->data['sessions'] = $this->db->select('id, school_year AS session')->order_by('id','DESC')->get('schoolyear')->result_array();
+        $this->data['classes'] = $this->db->select('id, name')->where('branch_id', $branchID)->get('class')->result_array();
+        if (is_superadmin_loggedin()) {
+            $this->data['branches'] = $this->db->get('branch')->result_array();
+        }
+        $this->data['title']    = 'Student Ledger';
+        $this->data['sub_page'] = 'fees/student_ledger';
+        $this->data['main_menu'] = 'fees_repots';
+        $this->load->view('layout/index', $this->data);
+    }
+
+    // ── Wallet Reconciliation ─────────────────────────────────────────────────
+
+    public function wallet_reconciliation()
+    {
+        if (!get_permission('fees_reports', 'is_view')) {
+            access_denied();
+        }
+        $branchID  = $this->application_model->get_branch_id() ?: get_loggedin_branch_id() ?: 1;
+        $sessionID = get_session_id();
+
+        // Students with a wallet balance that doesn't match their fee_payment_history sum.
+        $sql = "
+            SELECT s.id AS student_id, s.first_name, s.last_name, s.register_no,
+                   s.email, c.name AS class_name,
+                   sw.amount           AS wallet_balance,
+                   sw.payment_channel,
+                   sw.payment_gateway,
+                   sw.payment_gateway_reference,
+                   sw.updated_at,
+                   IFNULL(fph_sum.paid, 0) AS fees_paid,
+                   sw.amount - IFNULL(fph_sum.paid, 0) AS discrepancy
+            FROM student_wallet sw
+            INNER JOIN student s ON s.id = sw.student_id
+            INNER JOIN enroll  e ON e.student_id = s.id AND e.branch_id = {$branchID}
+                                                        AND e.session_id = {$sessionID}
+            INNER JOIN class   c ON c.id = e.class_id
+            LEFT JOIN (
+                SELECT fa.student_id AS enroll_id, SUM(fph.amount - fph.discount) AS paid
+                FROM fee_payment_history fph
+                INNER JOIN fee_allocation fa ON fa.id = fph.allocation_id
+                WHERE fa.session_id = {$sessionID}
+                GROUP BY fa.student_id
+            ) fph_sum ON fph_sum.enroll_id = e.id
+            WHERE s.active = 1
+            ORDER BY ABS(sw.amount - IFNULL(fph_sum.paid, 0)) DESC
+        ";
+        $rows = $this->db->query($sql)->result_array();
+
+        // Summary: total wallet, total applied, total discrepancy.
+        $totalWallet      = array_sum(array_column($rows, 'wallet_balance'));
+        $totalApplied     = array_sum(array_column($rows, 'fees_paid'));
+        $totalDiscrepancy = array_sum(array_column($rows, 'discrepancy'));
+
+        $this->data['rows']               = $rows;
+        $this->data['total_wallet']       = $totalWallet;
+        $this->data['total_applied']      = $totalApplied;
+        $this->data['total_discrepancy']  = $totalDiscrepancy;
+        $this->data['branch_id']          = $branchID;
+        $this->data['title']              = 'Wallet Reconciliation';
+        $this->data['sub_page']           = 'fees/wallet_reconciliation';
+        $this->data['main_menu']          = 'fees_repots';
+        $this->load->view('layout/index', $this->data);
+    }
+
+    // ── DVA Term Payment Report ──────────────────────────────────────────────
+    public function dva_term_payment_report()
+    {
+        $branchID = $this->application_model->get_branch_id() ?: get_loggedin_branch_id() ?: 1;
+
+        // --- summary: unique paystack transfers & amounts per term ---
+        $summarySQL = "
+            SELECT
+                CASE
+                    WHEN fg.name LIKE '1ST TERM%' OR fg.name LIKE '1st TERM%' THEN '1ST TERM'
+                    WHEN fg.name LIKE '2ND TERM%' OR fg.name LIKE '2nd TERM%' THEN '2ND TERM'
+                    WHEN fg.name LIKE '3RD TERM%' OR fg.name LIKE '3rd TERM%' THEN '3RD TERM'
+                    ELSE 'OTHER'
+                END                            AS term,
+                fg.session_id,
+                COUNT(DISTINCT pl.id)          AS unique_transfers,
+                COUNT(DISTINCT fa.student_id)  AS unique_students,
+                COUNT(DISTINCT fph.id)         AS payment_lines,
+                SUM(fph.amount)                AS total_applied
+            FROM fee_payment_history fph
+            INNER JOIN paystack_logs pl
+                ON pl.id = CAST(
+                    SUBSTRING_INDEX(SUBSTRING_INDEX(fph.remarks, 'DVA Wallet: ', -1), ' for ', 1)
+                    AS UNSIGNED)
+            INNER JOIN fee_allocation fa  ON fa.id  = fph.allocation_id
+                                         AND fa.branch_id = {$branchID}
+            INNER JOIN fee_groups     fg  ON fg.id  = fa.group_id
+            WHERE fph.remarks LIKE '%DVA Wallet%'
+            GROUP BY term, fg.session_id
+            ORDER BY fg.session_id, FIELD(term,'1ST TERM','2ND TERM','3RD TERM','OTHER')
+        ";
+        $summary = $this->db->query($summarySQL)->result_array();
+
+        // --- per-student detail rows ---
+        $detailSQL = "
+            SELECT
+                CASE
+                    WHEN fg.name LIKE '1ST TERM%' OR fg.name LIKE '1st TERM%' THEN '1ST TERM'
+                    WHEN fg.name LIKE '2ND TERM%' OR fg.name LIKE '2nd TERM%' THEN '2ND TERM'
+                    WHEN fg.name LIKE '3RD TERM%' OR fg.name LIKE '3rd TERM%' THEN '3RD TERM'
+                    ELSE 'OTHER'
+                END                                     AS term,
+                fg.name                                 AS fee_group_name,
+                s.first_name,
+                s.last_name,
+                s.register_no,
+                c.name                                  AS class_name,
+                COUNT(DISTINCT pl.id)                   AS transfers,
+                COUNT(DISTINCT fph.id)                  AS payment_lines,
+                SUM(fph.amount)                         AS total_applied,
+                MIN(fph.date)                           AS first_payment,
+                MAX(fph.date)                           AS last_payment
+            FROM fee_payment_history fph
+            INNER JOIN paystack_logs pl
+                ON pl.id = CAST(
+                    SUBSTRING_INDEX(SUBSTRING_INDEX(fph.remarks, 'DVA Wallet: ', -1), ' for ', 1)
+                    AS UNSIGNED)
+            INNER JOIN fee_allocation fa  ON fa.id      = fph.allocation_id
+                                         AND fa.branch_id = {$branchID}
+            INNER JOIN fee_groups     fg  ON fg.id      = fa.group_id
+            INNER JOIN enroll         e   ON e.id       = fa.student_id
+            INNER JOIN student        s   ON s.id       = e.student_id
+            LEFT  JOIN class          c   ON c.id       = e.class_id
+            WHERE fph.remarks LIKE '%DVA Wallet%'
+            GROUP BY term, fg.name, s.id
+            ORDER BY term, s.last_name, s.first_name
+        ";
+        $detail = $this->db->query($detailSQL)->result_array();
+
+        // Group detail rows by term for view
+        $byTerm = [];
+        foreach ($detail as $row) {
+            $byTerm[$row['term']][] = $row;
+        }
+
+        $this->data['summary']         = $summary;
+        $this->data['by_term']         = $byTerm;
+        $this->data['branch_id']       = $branchID;
+        $this->data['title']           = 'DVA Term Payment Report';
+        $this->data['sub_page']        = 'fees/dva_term_payment_report';
+        $this->data['main_menu']       = 'fees_repots';
+        $this->load->view('layout/index', $this->data);
+    }
+
+    /**
+     * Fix duplicate same-term fee allocations.
+     * Finds students with more than one 3rd-term (or any-term) 2025/2026 allocation
+     * of the same fee group name, consolidates payments to the first allocation,
+     * and removes the duplicate allocations.
+     * Access: /fees/fix_duplicate_term_allocations
+     */
+    public function fix_duplicate_term_allocations()
+    {
+        if (!is_superadmin_loggedin()) {
+            show_error('Forbidden', 403);
+        }
+
+        // Find all (keep_id, delete_id) pairs for 2025/2026 same-name 3rd term duplicates
+        $pairs = $this->db->query("
+            SELECT a_keep.id AS keep_id, a_del.id AS delete_id,
+                   s.first_name, s.last_name, s.register_no, fg.name AS fee_group
+            FROM fee_allocation a_keep
+            INNER JOIN fee_groups fg ON fg.id = a_keep.group_id
+                   AND fg.name LIKE '%3RD TERM%2025/2026%'
+                   AND fg.name NOT LIKE '%BUS%'
+                   AND fg.name NOT LIKE '%MEAL%'
+            INNER JOIN enroll e ON e.id = a_keep.student_id
+            INNER JOIN student s ON s.id = e.student_id
+            INNER JOIN fee_allocation a_del
+                   ON a_del.student_id = a_keep.student_id
+                  AND a_del.session_id  = a_keep.session_id
+                  AND a_del.id          > a_keep.id
+            INNER JOIN fee_groups fg_del ON fg_del.id = a_del.group_id
+                   AND fg_del.name = fg.name
+            ORDER BY a_keep.id
+        ")->result_array();
+
+        $fixed   = [];
+        $skipped = [];
+
+        foreach ($pairs as $pair) {
+            $keepId   = (int)$pair['keep_id'];
+            $deleteId = (int)$pair['delete_id'];
+
+            // Move payments from duplicate to primary
+            $this->db->set('allocation_id', $keepId)
+                     ->where('allocation_id', $deleteId)
+                     ->update('fee_payment_history');
+
+            // Delete the duplicate allocation
+            $deleted = $this->db->where('id', $deleteId)->delete('fee_allocation');
+
+            if ($deleted) {
+                $fixed[] = array_merge($pair, ['status' => 'fixed']);
+            } else {
+                $skipped[] = array_merge($pair, ['status' => 'skipped']);
+            }
+        }
+
+        $this->data['fixed']      = $fixed;
+        $this->data['skipped']    = $skipped;
+        $this->data['title']      = 'Fix Duplicate Term Allocations';
+        $this->data['sub_page']   = 'fees/fix_duplicate_allocations_result';
+        $this->data['main_menu']  = 'fees_repots';
+        $this->load->view('layout/index', $this->data);
+    }
 }

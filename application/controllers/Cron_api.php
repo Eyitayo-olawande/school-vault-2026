@@ -131,4 +131,173 @@ class Cron_api extends MY_Controller
             }
         }
     }
+
+    /**
+     * DVA Resumption Reminders — run DAILY.
+     * Sends SMS on: 14 days before resumption, 7 days before, and the Friday before resumption.
+     *
+     * Cron: daily at 8am
+     *   curl {base_url}cron_api/dva_resumption_reminder_command/{key}
+     */
+    public function dva_resumption_reminder_command($api_key = '')
+    {
+        if ($api_key != "" && $this->api_key != $api_key) {
+            echo "API Key is required or API Key does not match.";
+            exit();
+        }
+
+        $today     = date('Y-m-d');
+        $todayDow  = date('N'); // 1=Mon … 7=Sun
+        $branches  = $this->db->get('branch')->result_array();
+
+        foreach ($branches as $branch) {
+            $branchID  = $branch['id'];
+            $sessionID = $this->_getActiveSession($branchID);
+            if (!$sessionID) continue;
+
+            // Fetch all term_dates for this branch/session that have a resumption_date
+            $termDates = $this->db->where(['branch_id' => $branchID, 'session_id' => $sessionID])
+                ->where('resumption_date IS NOT NULL', null, false)
+                ->get('term_dates')->result_array();
+
+            foreach ($termDates as $td) {
+                $resumption = $td['resumption_date'];
+                $daysUntil  = (int) floor((strtotime($resumption) - strtotime($today)) / 86400);
+
+                $templateID = null;
+                if ($daysUntil == 14) {
+                    $templateID = 13; // dva_resumption_14d
+                } elseif ($daysUntil == 7) {
+                    $templateID = 14; // dva_resumption_7d
+                } elseif ($daysUntil > 0 && $daysUntil <= 3 && $todayDow == 5) {
+                    // Friday within 3 days of resumption (weekend-before send)
+                    $templateID = 15; // dva_resumption_weekend
+                }
+
+                if (!$templateID) continue;
+
+                // Get all students with DVA in this branch/session with outstanding balance
+                $students = $this->_getDvaStudentsWithBalance($branchID, $sessionID);
+                foreach ($students as $stu) {
+                    $vars = [
+                        'guardian_name'  => $stu['guardian_name'],
+                        'child_name'     => $stu['child_name'],
+                        'resumption_date'=> date('d M Y', strtotime($resumption)),
+                        'balance'        => number_format($stu['balance'], 2),
+                        'dva_account'    => $stu['account_number'],
+                        'dva_bank'       => $stu['bank_name'],
+                        'term'           => $td['term'],
+                    ];
+                    $this->sms_model->dvaSendReminder($branchID, $templateID, $vars, $stu['parent_mobile']);
+                }
+            }
+        }
+        echo "DVA resumption reminders processed.\n";
+    }
+
+    /**
+     * DVA Exam Reminders — run DAILY.
+     * Sends SMS on: 7 days before mid-term break, and 10 days before exam start.
+     *
+     * Cron: daily at 8am
+     *   curl {base_url}cron_api/dva_exam_reminder_command/{key}
+     */
+    public function dva_exam_reminder_command($api_key = '')
+    {
+        if ($api_key != "" && $this->api_key != $api_key) {
+            echo "API Key is required or API Key does not match.";
+            exit();
+        }
+
+        $today    = date('Y-m-d');
+        $branches = $this->db->get('branch')->result_array();
+
+        foreach ($branches as $branch) {
+            $branchID  = $branch['id'];
+            $sessionID = $this->_getActiveSession($branchID);
+            if (!$sessionID) continue;
+
+            $termDates = $this->db->where(['branch_id' => $branchID, 'session_id' => $sessionID])
+                ->get('term_dates')->result_array();
+
+            foreach ($termDates as $td) {
+                $sends = [];
+
+                if (!empty($td['midterm_date'])) {
+                    $daysUntilMidterm = (int) floor((strtotime($td['midterm_date']) - strtotime($today)) / 86400);
+                    if ($daysUntilMidterm == 7) {
+                        $sends[] = ['template' => 16, 'date_key' => 'midterm_date', 'date_val' => $td['midterm_date']];
+                    }
+                }
+                if (!empty($td['exam_start_date'])) {
+                    $daysUntilExam = (int) floor((strtotime($td['exam_start_date']) - strtotime($today)) / 86400);
+                    if ($daysUntilExam == 10) {
+                        $sends[] = ['template' => 17, 'date_key' => 'exam_start_date', 'date_val' => $td['exam_start_date']];
+                    }
+                }
+
+                if (empty($sends)) continue;
+
+                $students = $this->_getDvaStudentsWithBalance($branchID, $sessionID);
+                foreach ($sends as $send) {
+                    foreach ($students as $stu) {
+                        $vars = [
+                            'guardian_name' => $stu['guardian_name'],
+                            'child_name'    => $stu['child_name'],
+                            'balance'       => number_format($stu['balance'], 2),
+                            'dva_account'   => $stu['account_number'],
+                            'dva_bank'      => $stu['bank_name'],
+                            'term'          => $td['term'],
+                            'midterm_date'  => !empty($td['midterm_date'])    ? date('d M Y', strtotime($td['midterm_date']))    : '',
+                            'exam_start_date' => !empty($td['exam_start_date']) ? date('d M Y', strtotime($td['exam_start_date'])) : '',
+                        ];
+                        $this->sms_model->dvaSendReminder($branchID, $send['template'], $vars, $stu['parent_mobile']);
+                    }
+                }
+            }
+        }
+        echo "DVA exam reminders processed.\n";
+    }
+
+    // ── Private helpers ─────────────────────────────────────────────────────
+
+    private function _getActiveSession($branchID)
+    {
+        // Active session is a global setting (schoolyear has no branch_id or is_active column)
+        $row = $this->db->select('session_id')->where('id', 1)->get('global_settings')->row_array();
+        return $row['session_id'] ?? null;
+    }
+
+    /**
+     * Returns students with DVA accounts that have outstanding fee balances.
+     * Returns array of rows with: guardian_name, child_name, parent_mobile, account_number, bank_name, balance
+     */
+    private function _getDvaStudentsWithBalance($branchID, $sessionID)
+    {
+        $sql = "
+            SELECT
+                s.id        AS student_id,
+                CONCAT(s.first_name,' ',s.last_name) AS child_name,
+                COALESCE(p.father_name, p.guardian_name, 'Parent') AS guardian_name,
+                p.mobileno  AS parent_mobile,
+                dva.account_number,
+                dva.dedicated_account_bank AS bank_name,
+                e.id        AS enroll_id,
+                COALESCE(SUM(fg.amount), 0) - COALESCE(SUM(fph.paid_amount + fph.discount_amount), 0) AS balance
+            FROM enroll e
+            INNER JOIN student s       ON s.id = e.student_id
+            INNER JOIN dedicated_virtual_account dva ON dva.user_id = s.id
+            LEFT  JOIN parent p        ON p.id = s.parent_id
+            INNER JOIN fee_allocation fa ON fa.student_id = e.id AND fa.session_id = e.session_id
+            INNER JOIN fee_groups fg   ON fg.id = fa.group_id
+            LEFT  JOIN fee_payment_history fph ON fph.fee_allocation_id = fa.id
+            WHERE e.branch_id = ?
+              AND e.session_id = ?
+              AND dva.account_number IS NOT NULL
+              AND p.mobileno IS NOT NULL AND p.mobileno != ''
+            GROUP BY e.id
+            HAVING balance > 0
+        ";
+        return $this->db->query($sql, [$branchID, $sessionID])->result_array();
+    }
 }

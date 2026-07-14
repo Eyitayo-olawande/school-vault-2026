@@ -110,6 +110,35 @@ if (empty($student['previous_details'])) {
 		</section>
 	</div>
 <?php } ?>
+
+<?php
+/* ── Fees-inactive banner ─────────────────────────────────────────────── */
+$feesActive = isset($student['fees_active']) ? (int)$student['fees_active'] : 1;
+?>
+<?php if ($feesActive === 0): ?>
+<div class="col-md-offset-2 col-md-8">
+    <section class="panel" style="border:2px solid #f0ad4e;">
+        <div class="panel-body">
+            <h5 class="mb-xs" style="color:#e6a817;"><i class="fas fa-exclamation-triangle"></i> Student Excluded from Fee Reports</h5>
+            <p class="text-muted mb-sm">This student is not counted in any fees report, outstanding balance, or expected collection total.</p>
+            <?php if (!empty($student['fees_deactivated_reason'])): ?>
+            <ul class="stu-disabled">
+                <li><div class="main-r"><div class="r-1">Reason:</div><div><?=html_escape($student['fees_deactivated_reason'])?></div></div></li>
+                <?php if (!empty($student['fees_deactivated_at'])): ?>
+                <li><div class="main-r"><div class="r-1">Date:</div><div><?=date('d M Y', strtotime($student['fees_deactivated_at']))?></div></div></li>
+                <?php endif; ?>
+            </ul>
+            <?php endif; ?>
+            <?php if (get_permission('student', 'is_edit')): ?>
+            <button type="button" class="btn btn-success btn-sm mt-sm feesReactivateBtn" data-id="<?=$student['id']?>">
+                <i class="fas fa-check-circle"></i> Reactivate for Fees
+            </button>
+            <?php endif; ?>
+        </div>
+    </section>
+</div>
+<?php endif; ?>
+
 	<div class="col-md-12">
 		<div class="panel-group" id="accordion">
             <!-- student profile information user Interface -->
@@ -120,7 +149,16 @@ if (empty($student['previous_details'])) {
                             <button class="btn btn-default btn-circle" <?php echo $student['active'] == 0 ? 'disabled' : '' ?> id="authentication_btn">
                                 <?php if ($student['active'] == 1) { ?><i class="fas fa-unlock-alt"></i> <?=translate('authentication')?> <?php } else { ?><i class="fas fa-lock"></i> <?=translate('deactivated')?> <?php } ?>
                             </button>
-                        </div> 
+                            <?php if (get_permission('student', 'is_edit')): ?>
+                            <button type="button"
+                                    class="btn btn-circle ml-xs <?=$feesActive ? 'btn-warning' : 'btn-success'?>"
+                                    id="feesStatusBtn" data-id="<?=$student['id']?>"
+                                    title="<?=$feesActive ? 'Deactivate from fee reports' : 'Reactivate for fee reports'?>">
+                                <i class="fas fa-calculator"></i>
+                                <?=$feesActive ? 'Fees Active' : 'Fees Off'?>
+                            </button>
+                            <?php endif; ?>
+                        </div>
 						<a class="accordion-toggle" data-toggle="collapse" data-parent="#accordion" href="#profile">
 							<i class="fas fa-user-edit"></i> <?=translate('basic_details')?>
 						</a>
@@ -1215,4 +1253,95 @@ if (empty($student['previous_details'])) {
 
 <script type="text/javascript">
 	var authenStatus = "<?=$student['active']?>";
+	var feesActiveStatus = <?=isset($student['fees_active']) ? (int)$student['fees_active'] : 1?>;
+</script>
+
+<!-- Fees Status Deactivation Modal -->
+<div class="modal fade" id="feesDeactivateModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-sm" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title"><i class="fas fa-calculator"></i> Deactivate from Fee Reports</h4>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted">This student will be excluded from all fees reports and outstanding calculations.</p>
+                <div class="form-group">
+                    <label>Reason <span class="required">*</span></label>
+                    <textarea id="feesDeactivateReason" class="form-control" rows="3" placeholder="e.g. Scholarship, withdrawn, fee waiver..."></textarea>
+                    <span id="feesDeactivateReasonErr" class="text-danger" style="display:none;">Reason is required.</span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-warning" id="feesDeactivateConfirm">
+                    <i class="fas fa-ban"></i> Deactivate
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    var csrf_name  = "<?=$this->security->get_csrf_token_name()?>";
+    var csrf_val   = "<?=$this->security->get_csrf_hash()?>";
+    var studentID  = <?=(int)$student['id']?>;
+
+    function getCsrf() {
+        // Re-read from cookie on each request so the rotated token is used
+        var m = document.cookie.match(new RegExp('<?=$this->config->item("csrf_cookie_name")?>=([^;]+)'));
+        return m ? m[1] : csrf_val;
+    }
+
+    function feesAjax(action, reason, successCb) {
+        var data = {};
+        data[csrf_name]  = getCsrf();
+        data.student_id  = studentID;
+        data.action      = action;
+        if (reason) data.reason = reason;
+        $.ajax({
+            url: base_url + 'student/toggle_fees_status',
+            type: 'POST',
+            dataType: 'json',
+            data: data,
+            success: function (r) {
+                if (r.status === 'success') { successCb(); }
+                else { alert(r.error || 'An error occurred.'); }
+            },
+            error: function () { alert('Network error — please try again.'); }
+        });
+    }
+
+    // Deactivate button in header
+    $(document).on('click', '#feesStatusBtn', function () {
+        if (feesActiveStatus === 0) {
+            // already off — treat click as reactivate
+            feesReactivate();
+        } else {
+            $('#feesDeactivateReason').val('');
+            $('#feesDeactivateReasonErr').hide();
+            $('#feesDeactivateModal').modal('show');
+        }
+    });
+
+    // Reactivate button in the orange banner
+    $(document).on('click', '.feesReactivateBtn', function () {
+        feesReactivate();
+    });
+
+    function feesReactivate() {
+        if (!confirm('Reactivate this student for fee reports?')) return;
+        feesAjax('reactivate', null, function () { location.reload(); });
+    }
+
+    $('#feesDeactivateConfirm').on('click', function () {
+        var reason = $.trim($('#feesDeactivateReason').val());
+        if (!reason) {
+            $('#feesDeactivateReasonErr').show();
+            return;
+        }
+        feesAjax('deactivate', reason, function () { location.reload(); });
+    });
+})();
 </script>

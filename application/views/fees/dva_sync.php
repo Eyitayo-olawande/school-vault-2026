@@ -118,7 +118,7 @@
 <script>
 (function () {
     var CSRF_NAME  = '<?= $this->security->get_csrf_token_name() ?>';
-    var CSRF_COOKIE = '<?= addslashes($this->security->get_csrf_cookie_name()) ?>';
+    var CSRF_COOKIE = '<?= addslashes($this->config->item('csrf_cookie_name')) ?>';
     var ENDPOINT   = '<?= base_url('fees/dva_sync') ?>';
 
     function getCsrf() {

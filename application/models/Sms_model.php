@@ -17,6 +17,8 @@ class Sms_model extends CI_Model
         $this->load->library("smscountry");
         $this->load->library("bulksmsbd");
         $this->load->library("custom_sms");
+        $this->load->library("termii");
+        $this->load->library("smartsms");
     }
 
     // common function for sending sms
@@ -66,6 +68,21 @@ class Sms_model extends CI_Model
                         $this->_send($sms_api, $parent['mobileno'], $text, $template['dlt_template_id']);
                     }
                 }
+            }
+        }
+    }
+
+    public function alumniEvent($arrayData = [])
+    {
+        $sms_api = $this->application_model->smsServiceProvider($arrayData['branch_id']);
+        $template = $this->db->get_where('sms_template_details', array('template_id' => 11, 'branch_id' => $arrayData['branch_id']))->row_array();
+        if (!empty($template) && $template['notify_student'] == 1 && $sms_api != 'disabled') {
+            $text = str_replace('{student_name}', $arrayData['name'], $template['template_body']);
+            $text = str_replace('{start_date}', $arrayData['from_date'], $text);
+            $text = str_replace('{end_date}', $arrayData['to_date'], $text);
+            $text = str_replace('{event_title}', $arrayData['event_title'], $text);
+            if (!empty($arrayData['mobile_no'])) {
+                $this->_send($sms_api, $arrayData['mobile_no'], $text, $template['dlt_template_id']);
             }
         }
     }
@@ -238,68 +255,6 @@ class Sms_model extends CI_Model
         }
     }
 
-    /**
-     * Queue an SMS for asynchronous sending instead of blocking the HTTP request.
-     * Used by attendance saving to avoid in-loop gateway calls.
-     */
-    public function queue_sms($mobile, $message, $dlt_template_id = '', $branch_id = null)
-    {
-        if (empty($mobile) || empty($message)) {
-            return;
-        }
-        $this->db->insert('sms_queue', [
-            'mobile'          => $mobile,
-            'message'         => $message,
-            'dlt_template_id' => (string)$dlt_template_id,
-            'branch_id'       => (int)($branch_id ?? $this->application_model->get_branch_id()),
-            'status'          => 0,
-        ]);
-    }
-
-    /**
-     * Process pending items in the SMS queue (call from a cron endpoint).
-     * Processes up to $limit items per run to avoid gateway timeouts.
-     * Returns counts of sent/failed items.
-     */
-    public function flush_queue($branch_id = null, $limit = 50)
-    {
-        $query = $this->db->where('status', 0)->order_by('created_at', 'ASC')->limit($limit);
-        if ($branch_id) {
-            $query->where('branch_id', (int)$branch_id);
-        }
-        $pending = $this->db->get('sms_queue')->result_array();
-
-        $sent = $failed = 0;
-        foreach ($pending as $item) {
-            $sms_api = $this->application_model->smsServiceProvider($item['branch_id']);
-            if ($sms_api === 'disabled') {
-                $this->db->where('id', $item['id'])->update('sms_queue', ['status' => 2, 'error_msg' => 'SMS disabled for branch', 'sent_at' => date('Y-m-d H:i:s')]);
-                $failed++;
-                continue;
-            }
-            try {
-                $this->_send($sms_api, $item['mobile'], $item['message'], $item['dlt_template_id']);
-                $this->db->where('id', $item['id'])->update('sms_queue', ['status' => 1, 'sent_at' => date('Y-m-d H:i:s')]);
-                $sent++;
-            } catch (Exception $e) {
-                $retries = (int)$item['retry_count'] + 1;
-                $finalStatus = $retries >= 3 ? 2 : 0;
-                $this->db->where('id', $item['id'])->update('sms_queue', ['status' => $finalStatus, 'retry_count' => $retries, 'error_msg' => substr($e->getMessage(), 0, 500)]);
-                $failed++;
-            }
-        }
-        return ['sent' => $sent, 'failed' => $failed, 'total' => count($pending)];
-    }
-
-    /** Count pending items in the queue (shown on admin dashboard). */
-    public function queue_pending_count($branch_id = null)
-    {
-        if ($branch_id) {
-            $this->db->where('branch_id', (int)$branch_id);
-        }
-        return $this->db->where('status', 0)->count_all_results('sms_queue');
-    }
-
     public function _send($sms_api, $receiver, $text, $dlt_template_id = '')
     {
         if ($sms_api == 2) {
@@ -318,6 +273,120 @@ class Sms_model extends CI_Model
             $res = $this->bulksmsbd->send($receiver, $text);
         } elseif ($sms_api == 8) {
             $res = $this->custom_sms->send($receiver, $text, $dlt_template_id);
+        } elseif ($sms_api == 9) {
+            $res = $this->termii->send($receiver, $text);
+        } elseif ($sms_api == 10) {
+            $res = $this->smartsms->send($receiver, $text);
         }
+    }
+
+    /**
+     * DVA Fee Allocation Notice — sent immediately after fee is allocated to a student
+     * with a Dedicated Virtual Account.
+     *
+     * @param array $data  Keys: branch_id, enroll_id, fee_group_name, amount, term
+     */
+    public function dvaFeeAllocationNotice(array $data)
+    {
+        $branchID = $data['branch_id'];
+        $sms_api  = $this->application_model->smsServiceProvider($branchID);
+        if ($sms_api == 'disabled') {
+            return;
+        }
+        $template = $this->db->get_where('sms_template_details', [
+            'template_id' => 12,
+            'branch_id'   => $branchID,
+        ])->row_array();
+        if (empty($template) || ($template['notify_parent'] != 1 && $template['notify_student'] != 1)) {
+            return;
+        }
+
+        // Resolve student & parent details from enroll_id
+        $enroll = $this->db->select('e.student_id, e.session_id, s.first_name, s.last_name, s.mobileno, s.parent_id')
+            ->from('enroll e')
+            ->join('student s', 's.id = e.student_id')
+            ->where('e.id', $data['enroll_id'])
+            ->get()->row_array();
+        if (empty($enroll)) {
+            return;
+        }
+
+        // Get parent mobile
+        $parentMobile = '';
+        $parentName   = 'Parent';
+        if (!empty($enroll['parent_id'])) {
+            $parent = $this->db->select('mobileno, father_name, guardian_name')
+                ->where('id', $enroll['parent_id'])->get('parent')->row_array();
+            $parentMobile = $parent['mobileno'] ?? '';
+            $parentName   = !empty($parent['father_name']) ? $parent['father_name'] : ($parent['guardian_name'] ?? 'Parent');
+        }
+
+        // Get DVA details
+        $dva = $this->db->select('account_number, dedicated_account_bank')
+            ->where('user_id', $enroll['student_id'])->get('dedicated_virtual_account')->row_array();
+        $dvaAccount = $dva['account_number'] ?? 'N/A';
+        $dvaBank    = $dva['dedicated_account_bank'] ?? 'N/A';
+
+        $childName = trim($enroll['first_name'] . ' ' . $enroll['last_name']);
+
+        $text = str_replace(
+            ['{guardian_name}', '{child_name}', '{term}', '{amount}', '{dva_account}', '{dva_bank}', '{fee_name}'],
+            [$parentName, $childName, $data['term'] ?? '', number_format((float)($data['amount'] ?? 0), 2), $dvaAccount, $dvaBank, $data['fee_group_name'] ?? ''],
+            $template['template_body']
+        );
+
+        if ($template['notify_parent'] == 1 && !empty($parentMobile)) {
+            $this->_send($sms_api, $parentMobile, $text, $template['dlt_template_id'] ?? '');
+            if (!empty($template['notify_whatsapp'])) {
+                $this->_sendWhatsApp($sms_api, $parentMobile, $text);
+            }
+        }
+        if ($template['notify_student'] == 1 && !empty($enroll['mobileno'])) {
+            $this->_send($sms_api, $enroll['mobileno'], $text, $template['dlt_template_id'] ?? '');
+            if (!empty($template['notify_whatsapp'])) {
+                $this->_sendWhatsApp($sms_api, $enroll['mobileno'], $text);
+            }
+        }
+    }
+
+    /**
+     * DVA resumption/exam reminders — called by cron commands.
+     *
+     * @param int    $branchID
+     * @param int    $templateID  13-17
+     * @param array  $vars        Substitution variables to merge into template body
+     * @param string $mobile
+     * @param string $dlt_id
+     */
+    public function dvaSendReminder($branchID, $templateID, array $vars, $mobile, $dlt_id = '')
+    {
+        $sms_api = $this->application_model->smsServiceProvider($branchID);
+        if ($sms_api == 'disabled' || empty($mobile)) {
+            return;
+        }
+        $template = $this->db->get_where('sms_template_details', [
+            'template_id' => $templateID,
+            'branch_id'   => $branchID,
+        ])->row_array();
+        if (empty($template) || $template['notify_parent'] != 1) {
+            return;
+        }
+        $text = $template['template_body'];
+        foreach ($vars as $tag => $val) {
+            $text = str_replace('{' . $tag . '}', $val, $text);
+        }
+        $this->_send($sms_api, $mobile, $text, $dlt_id ?: ($template['dlt_template_id'] ?? ''));
+        if (!empty($template['notify_whatsapp'])) {
+            $this->_sendWhatsApp($sms_api, $mobile, $text);
+        }
+    }
+
+    // Send via Termii WhatsApp channel (sms_api must be 9 / Termii).
+    private function _sendWhatsApp($sms_api, $receiver, $text)
+    {
+        if ($sms_api != 9) {
+            return; // WhatsApp channel only supported through Termii
+        }
+        $this->termii->sendWhatsApp($receiver, $text);
     }
 }

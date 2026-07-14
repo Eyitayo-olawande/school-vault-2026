@@ -43,5 +43,23 @@
 				<div class="alert alert-subl"><?php echo "curl ".site_url("cron_api/fees_reminder_command")."/".$global_config['cron_secret_key']; ?></div>
 			</div>
 		</section>
+		<section class="panel">
+			<header class="panel-heading">
+				<h4 class="panel-title"><i class="far fa-clock"></i> DVA Resumption Reminder Cron Job Command <small class="text-muted">— Run daily at 8am</small></h4>
+			</header>
+			<div class="panel-body">
+				<div class="alert alert-subl"><?php echo "curl ".site_url("cron_api/dva_resumption_reminder_command")."/".$global_config['cron_secret_key']; ?></div>
+				<p class="text-muted mt-sm"><i class="fas fa-info-circle"></i> Sends DVA payment SMS to parents 14 days, 7 days, and the Friday before resumption. Requires <a href="<?=base_url('term_dates')?>">Term Dates</a> to be configured.</p>
+			</div>
+		</section>
+		<section class="panel">
+			<header class="panel-heading">
+				<h4 class="panel-title"><i class="far fa-clock"></i> DVA Exam Reminder Cron Job Command <small class="text-muted">— Run daily at 8am</small></h4>
+			</header>
+			<div class="panel-body">
+				<div class="alert alert-subl"><?php echo "curl ".site_url("cron_api/dva_exam_reminder_command")."/".$global_config['cron_secret_key']; ?></div>
+				<p class="text-muted mt-sm"><i class="fas fa-info-circle"></i> Sends DVA payment SMS 7 days before mid-term break and 10 days before exam start. Requires <a href="<?=base_url('term_dates')?>">Term Dates</a> to be configured.</p>
+			</div>
+		</section>
 	</div>
 </div>

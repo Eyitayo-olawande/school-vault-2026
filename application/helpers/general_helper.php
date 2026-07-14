@@ -326,7 +326,7 @@ function get_type_name_by_id($table, $type_id = '', $field = 'name')
 {
     $CI = &get_instance();
     $get = $CI->db->select($field)->from($table)->where('id', $type_id)->limit(1)->get()->row_array();
-    return $get[$field];
+    return $get[$field] ?? '';
 }
 
 // set session alert / flashdata

@@ -277,6 +277,25 @@ class Student extends Admin_Controller
                     saveCustomFields($customField, $studentID);
                 }
 
+                // Create Paystack DVA for new student if email provided and none exists yet
+                if (!empty($post['email'])) {
+                    $dvaExists = $this->db->where('user_id', $studentID)
+                                          ->get('dedicated_virtual_account')
+                                          ->num_rows() > 0;
+                    if (!$dvaExists) {
+                        $this->paystack_utility->initialize($branchID);
+                        $this->paystack_utility->paystack_get_dva([
+                            'firstname'     => $post['first_name'],
+                            'middlename'    => substr($post['first_name'], 0, 1),
+                            'lastname'      => $post['last_name'] ?? '',
+                            'student_email' => $post['email'],
+                            'phone'         => $post['mobileno'] ?? '',
+                            'preferredbank' => 'titan-paystack',
+                            'country'       => 'NG',
+                        ]);
+                    }
+                }
+
                 // send student admission email
                 $this->email_model->studentAdmission($studentData);
                 // send account activate sms
@@ -1290,38 +1309,58 @@ class Student extends Admin_Controller
                     log_message('info', 'Class ID '.$classID.' | Section ID '.$sectionID);
                     $columnHeaders = array('FirstName','MiddleName','LastName','Phone','StudentEmail','PreferredBank','CountryCode');
                     $csvData = array();
+                    $dva_created = 0;
+                    $dva_skipped = 0;
+                    $dva_not_found = [];
                     foreach ($csv_array as $row) {
                         if ($i == 0) {
                             $csvData = array_keys($row);
-                            // log_message('info', 'Csv Data '.$csvData);
                         }
                         $csv_chk = array_diff($columnHeaders, $csvData);
                         log_message('info', 'Csv Check Diff '.count($csv_chk));
                         if (count($csv_chk) <= 0) {
-                            log_message('info', 'Row Data '.json_encode($row));
                             log_message('info', 'Row Data Fields '. $row['FirstName'] . ' ' . $row['LastName']);
-                            $schoolSettings = $this->student_model->get('branch', array('id' => $branchID), true, false, 'unique_roll');
-                            $unique_roll = $schoolSettings['unique_roll'];
-                            log_message('info', 'Unique Roll '.$unique_roll);
-                            
-                            // use the paystack_utility library to call the DVA Endpoint
+
+                            $studentRecord = $this->student_model->getStudentByEmail($row['StudentEmail']);
+                            if (!$studentRecord) {
+                                log_message('info', $row['FirstName'] . ' ' . $row['LastName'] . ' not found in DB — skipping DVA');
+                                $dva_not_found[] = $row['FirstName'] . ' ' . $row['LastName'];
+                                $i++;
+                                continue;
+                            }
+
+                            $dvaExists = $this->db->where('user_id', $studentRecord->id)
+                                                  ->get('dedicated_virtual_account')
+                                                  ->num_rows() > 0;
+                            if ($dvaExists) {
+                                log_message('info', $row['StudentEmail'] . ' already has a DVA — skipping Paystack call');
+                                $dva_skipped++;
+                                $i++;
+                                continue;
+                            }
+
                             $data = array(
-                                'firstname' => $row['FirstName'],
-                                'middlename' => $row['MiddleName'],
-                                'lastname' => $row['LastName'],
+                                'firstname'     => $row['FirstName'],
+                                'middlename'    => $row['MiddleName'],
+                                'lastname'      => $row['LastName'],
                                 'student_email' => $row['StudentEmail'],
-                                'phone' => $row['Phone'],
+                                'phone'         => $row['Phone'],
                                 'preferredbank' => $row['PreferredBank'],
-                                'country' => $row['CountryCode'],
+                                'country'       => $row['CountryCode'],
                             );
                             $this->paystack_utility->initialize($branchID);
                             $this->paystack_utility->paystack_get_dva($data);
+                            $dva_created++;
                             $i++;
                         }
                     }
 
-                    if ($i > 0) {
-                        set_alert('success', $i . ' Students Have Been Successfully Added');
+                    $parts = [];
+                    if ($dva_created > 0)   $parts[] = $dva_created . ' DVA(s) created';
+                    if ($dva_skipped > 0)   $parts[] = $dva_skipped . ' already had DVA (skipped)';
+                    if (!empty($dva_not_found)) $parts[] = count($dva_not_found) . ' student(s) not found in system';
+                    if (!empty($parts)) {
+                        set_alert('success', implode(' | ', $parts));
                     }
                 }
             }
@@ -1382,38 +1421,32 @@ class Student extends Admin_Controller
                     log_message('info', 'Class ID '.$classID.' | Section ID '.$sectionID);
                     $columnHeaders = array('FirstName','LastName','StudentEmail','FeesType', 'FeesGroup', 'Fees', 'DueDate');
                     $csvData = array();
+                    $sessionID = get_session_id();
+                    $outcome = ['allocated' => 0, 'already_existed' => 0, 'type_blocked' => [], 'not_found' => []];
                     foreach ($csv_array as $row) {
                         if ($i == 0) {
                             $csvData = array_keys($row);
-                            // log_message('info', 'Csv Data '.$csvData);
                         }
                         $csv_chk = array_diff($columnHeaders, $csvData);
                         log_message('info', 'Csv Check Diff '.count($csv_chk));
                         if (count($csv_chk) <= 0) {
-                            log_message('info', 'Row Data '.json_encode($row));
                             log_message('info', 'Row Data Fields '. $row['FirstName'] . ' ' . $row['LastName']);
-                            $schoolSettings = $this->student_model->get('branch', array('id' => $branchID), true, false, 'unique_roll');
-                            $unique_roll = $schoolSettings['unique_roll'];
-                            log_message('info', 'Unique Roll '.$unique_roll);
-                            
+
                             //Fetch Student Details with Email
                             $query = $this->db->select('id')->where('email', $row['StudentEmail'])->get('student');
                             if ($query->row()) {
                                 log_message('info', $row['FirstName'] . ' ' . $row['LastName'] . ' ' . $row['StudentEmail'].' Student Found ');
-                                $student_data = $query->row(); // Returns a single row object
-                                //$student_data->id,
-                                //check if feeType, feeGroup already created, and apply fee to student i.e. fee_allocation
-                                $sessionID = get_session_id();
+                                $student_data = $query->row();
                                 $feeTypeName = trim($row['FeesType']);
-                                
-                                //does the feeType alread exist if yes return the feeType ID
+
+                                //does the feeType already exist? if yes return the feeType ID
                                 $arrayType = array(
-                                    'name' => $feeTypeName,
-                                    'fee_code' => strtolower(str_replace(' ', '-', $feeTypeName)), 
-                                    'branch_id' => $branchID, 
-                                    'system' => 0, 
+                                    'name'      => $feeTypeName,
+                                    'fee_code'  => strtolower(str_replace(' ', '-', $feeTypeName)),
+                                    'branch_id' => $branchID,
+                                    'system'    => 0,
                                 );
-                                $fee_type_exists  = $this->fees_model->checkExistsData('fees_type', $arrayType);
+                                $fee_type_exists = $this->fees_model->checkExistsData('fees_type', $arrayType);
                                 if (!$fee_type_exists) {
                                     $this->db->insert('fees_type', $arrayType);
                                     $fee_type_id = $this->db->insert_id();
@@ -1422,17 +1455,16 @@ class Student extends Admin_Controller
                                     $fee_type_id = $fee_type_exists->id;
                                     log_message('info', ' Student Fee Type Already Exist - '.$fee_type_id);
                                 }
-                                
 
-                                //does the feeGroup alread exist if yes return the feeGroup ID
+                                //does the feeGroup already exist? if yes return the feeGroup ID
                                 $feeGroupName = trim($row['FeesGroup']);
                                 $arrayGroup = array(
-                                    'name' => $feeGroupName, 
-                                    'branch_id' => $branchID, 
-                                    'session_id' => $sessionID, 
-                                    'system' => 0, 
+                                    'name'       => $feeGroupName,
+                                    'branch_id'  => $branchID,
+                                    'session_id' => $sessionID,
+                                    'system'     => 0,
                                 );
-                                $fee_group_exists  = $this->fees_model->checkExistsData('fee_groups', $arrayGroup);
+                                $fee_group_exists = $this->fees_model->checkExistsData('fee_groups', $arrayGroup);
                                 if (!$fee_group_exists) {
                                     $this->db->insert('fee_groups', $arrayGroup);
                                     $fee_group_id = $this->db->insert_id();
@@ -1442,54 +1474,91 @@ class Student extends Admin_Controller
                                     log_message('info', ' Student Fee Group Already Exist - '.$fee_group_id);
                                 }
 
-                                //does the combination of FeeType and FeeGroup exists in Fee Group Details
+                                //does the combination of FeeType and FeeGroup exist in Fee Group Details?
                                 $arrayGroupsDetails = array(
-                                    'fee_groups_id' => $fee_group_id, 
-                                    'fee_type_id' => $fee_type_id,
+                                    'fee_groups_id' => $fee_group_id,
+                                    'fee_type_id'   => $fee_type_id,
                                 );
                                 $fee_group_details_exists = $this->fees_model->checkExistsData('fee_groups_details', $arrayGroupsDetails);
                                 if (!$fee_group_details_exists) {
-                                    $feeAmount = $row['Fees'];
-                                    // Remove the comma and convert to float
-                                    $numberValue = (float) str_replace(',', '', $feeAmount);
-                                    // Format the number with 2 decimal places
-                                    $formattedfeeAmount = number_format($numberValue, 2, '.', '');
-                                    $arrayGroupsDetails['amount'] = $formattedfeeAmount;
+                                    $numberValue = (float) str_replace(',', '', $row['Fees']);
+                                    $arrayGroupsDetails['amount']   = number_format($numberValue, 2, '.', '');
                                     $arrayGroupsDetails['due_date'] = $row['DueDate'];
                                     $this->db->insert('fee_groups_details', $arrayGroupsDetails);
-                                    $fee_group_details_id = $this->db->insert_id();
-                                    log_message('info', ' Student Fee Group Details Created - '.$fee_group_details_id);
+                                    log_message('info', ' Student Fee Group Details Created - '.$this->db->insert_id());
+                                }
+
+                                // Same-type guard: block if student already has a same-term fee of this type
+                                $conflict = $this->fees_model->has_same_type_allocation(
+                                    $student_data->id, $fee_group_id, $sessionID
+                                );
+                                if ($conflict !== false) {
+                                    log_message('info', 'Allocation blocked for '.$row['StudentEmail'].' — conflicts with: '.$conflict);
+                                    $outcome['type_blocked'][] = $row['FirstName'] . ' ' . $row['LastName'] . ' (conflicts with: ' . $conflict . ')';
+                                    $i++;
+                                    continue;
                                 }
 
                                 //allocate the fee details to the student
                                 $arrayAllocation = array(
-                                    'student_id' => $student_data->id, 
-                                    'group_id' => $fee_group_id,
-                                    'branch_id' => $branchID,
+                                    'student_id' => $student_data->id,
+                                    'group_id'   => $fee_group_id,
+                                    'branch_id'  => $branchID,
                                     'session_id' => $sessionID,
                                 );
                                 $fee_allocation_exists = $this->fees_model->checkExistsData('fee_allocation', $arrayAllocation);
                                 if (!$fee_allocation_exists) {
                                     $arrayAllocation['prev_due'] = 0.00;
                                     $this->db->insert('fee_allocation', $arrayAllocation);
-                                    $fee_allocation_id = $this->db->insert_id();
-                                    log_message('info', ' Student Fee Allocation Created - '.$fee_allocation_id);
+                                    log_message('info', ' Student Fee Allocation Created - '.$this->db->insert_id());
+                                    $outcome['allocated']++;
+
+                                    // DVA allocation SMS/WhatsApp notice
+                                    $enrollRow = $this->db->select('id')
+                                        ->where('student_id', $student_data->id)
+                                        ->get('enroll')->row_array();
+                                    if (!empty($enrollRow)) {
+                                        $term = '';
+                                        if (preg_match('/\b(1ST|2ND|3RD)\s+TERM\b/i', $feeGroupName, $m)) {
+                                            $term = strtoupper($m[0]);
+                                        }
+                                        $groupTotal = (float) $this->db->select_sum('amount')
+                                            ->where('fee_groups_id', $fee_group_id)
+                                            ->get('fee_groups_details')->row()->amount;
+                                        $this->sms_model->dvaFeeAllocationNotice([
+                                            'branch_id'      => $branchID,
+                                            'enroll_id'      => $enrollRow['id'],
+                                            'fee_group_name' => $feeGroupName,
+                                            'amount'         => $groupTotal,
+                                            'term'           => $term,
+                                        ]);
+                                    }
                                 } else {
-                                    $arrayAllocation['prev_due'] = 0.00;
-                                    $this->db->where('id', $fee_allocation_exists->id);
-                                    $this->db->update('fee_allocation', $arrayAllocation);
                                     log_message('info', ' Student Fee Allocation Already Exists - '.$fee_allocation_exists->id);
+                                    $outcome['already_existed']++;
                                 }
                             } else {
-                                log_message('info', $row['FirstName'] . ' ' . $row['LastName'] . ' ' . $row['StudentEmail'].' Student Not Found Error');
+                                log_message('info', $row['FirstName'] . ' ' . $row['LastName'] . ' ' . $row['StudentEmail'].' Student Not Found');
+                                $outcome['not_found'][] = $row['FirstName'] . ' ' . $row['LastName'] . ' (' . $row['StudentEmail'] . ')';
                             }
-                            
+
                             $i++;
                         }
                     }
 
-                    if ($i > 0) {
-                        set_alert('success', $i . ' Students Have Been Successfully Added');
+                    $parts = [];
+                    if ($outcome['allocated'] > 0)       $parts[] = $outcome['allocated'] . ' allocated';
+                    if ($outcome['already_existed'] > 0) $parts[] = $outcome['already_existed'] . ' already existed';
+                    if (!empty($outcome['type_blocked'])) $parts[] = count($outcome['type_blocked']) . ' skipped — same-type duplicate';
+                    if (!empty($outcome['not_found']))    $parts[] = count($outcome['not_found']) . ' student(s) not found';
+                    if (!empty($parts)) {
+                        set_alert('success', implode(' | ', $parts));
+                    }
+                    if (!empty($outcome['type_blocked']) || !empty($outcome['not_found'])) {
+                        $detail = '';
+                        foreach ($outcome['type_blocked'] as $s) $detail .= 'Blocked: ' . $s . '<br>';
+                        foreach ($outcome['not_found'] as $s)    $detail .= 'Not found: ' . $s . '<br>';
+                        $this->session->set_flashdata('csvimport', $detail);
                     }
                 }
             }
@@ -1546,126 +1615,112 @@ class Student extends Admin_Controller
                 if ($csv_array) {
                     $columnHeaders = array('FirstName','LastName','BloodGroup','Gender','Birthday','MotherTongue','Religion','Caste','Phone','City','State','PresentAddress','PermanentAddress','CategoryID','Roll','RegisterNo','AdmissionDate','StudentEmail','StudentUsername','StudentPassword','GuardianName','GuardianRelation','FatherName','MotherName','GuardianOccupation','GuardianMobileNo','GuardianAddress','GuardianEmail','GuardianUsername','GuardianPassword', 'FeesType', 'FeesGroup', 'Fees', 'DueDate');
                     $csvData = array();
+                    // Hoist branch settings and constants out of the per-row loop (finding 7 / N+1 fix)
+                    $schoolSettings  = $this->student_model->get('branch', array('id' => $branchID), true, false, 'unique_roll');
+                    $unique_roll     = $schoolSettings['unique_roll'];
+                    $sessionID       = get_session_id();
+                    $defaultDvaBank    = 'titan-paystack';
+                    $defaultDvaCountry = 'NG';
+                    $outcome = ['dva_created' => 0, 'dva_skipped' => 0, 'fees_allocated' => 0, 'fees_existed' => 0, 'fee_blocked' => []];
                     foreach ($csv_array as $row) {
                         if ($i == 0) {
                             $csvData = array_keys($row);
                         }
                         $csv_chk = array_diff($columnHeaders, $csvData);
                         if (count($csv_chk) <= 0) {
-                            $schoolSettings = $this->student_model->get('branch', array('id' => $branchID), true, false, 'unique_roll');
-                            $unique_roll = $schoolSettings['unique_roll'];
-
                             $r = $this->csvCheckExistsData($row['StudentUsername'], $row['Roll'], $row['RegisterNo'], $classID, $sectionID, $branchID, $unique_roll);
                             if ($r['status'] == false) {
                                 $err_msg .= $row['FirstName'] . ' ' . $row['LastName'] . " - Imported Failed : " . $r['message'] . "<br>";
                             } else {
                                 $this->student_model->csvImport($row, $classID, $sectionID, $branchID);
 
-                                /*
-                                Hafeez Lawal    2025-01-20
-                                Req 2: ⁠After successful Student creation - ⁠⁠DVA creation
-                                Req 6: ⁠After successful Student creation - Fee Type, Fee Group, Fee Allocation creation
-                                */
-                                // Validate the Student was created successfully before creating a DVA
                                 $studentRecord = $this->student_model->getStudentByEmail($row['StudentEmail']);
                                 if ($studentRecord) {
-                                    log_message('info', 'Calling Paystack for DVA Creation for  '.$studentRecord->id.' -  '.$row['FirstName'] . ' ' . $row['LastName']);
-                            
-                                    // use the paystack_utility library to call the DVA Endpoint
-                                    $defaultBank = 'titan-paystack';
-                                    $defaultCountryCode = 'NG';
-                                    $data = array(
-                                        'firstname' => $row['FirstName'],
-                                        'middlename' => substr($row['FirstName'],0,1),
-                                        'lastname' => $row['LastName'],
-                                        'student_email' => $row['StudentEmail'],
-                                        'phone' => $row['Phone'],
-                                        'preferredbank' => $defaultBank,
-                                        'country' => $defaultCountryCode,
-                                    );
-                                    $this->paystack_utility->initialize($branchID);
-                                    $this->paystack_utility->paystack_get_dva($data);
+                                    log_message('info', $studentRecord->id . ' | '.$row['FirstName'].' '.$row['LastName'].' Student Found for DVA + Fee Processing');
 
-                                    
-                                    log_message('info', $studentRecord->id . ' | '.$row['FirstName'] . ' ' . $row['LastName'] . ' ' . $row['StudentEmail'].' Student Found for Fee Processing');
-                                    //check if feeType, feeGroup already created, and apply fee to student i.e. fee_allocation
-                                    $sessionID = get_session_id();
+                                    // DVA: skip if student already has one (finding 5)
+                                    $dvaExists = $this->db->where('user_id', $studentRecord->id)
+                                                          ->get('dedicated_virtual_account')
+                                                          ->num_rows() > 0;
+                                    if (!$dvaExists) {
+                                        $this->paystack_utility->initialize($branchID);
+                                        $this->paystack_utility->paystack_get_dva([
+                                            'firstname'     => $row['FirstName'],
+                                            'middlename'    => substr($row['FirstName'], 0, 1),
+                                            'lastname'      => $row['LastName'],
+                                            'student_email' => $row['StudentEmail'],
+                                            'phone'         => $row['Phone'],
+                                            'preferredbank' => $defaultDvaBank,
+                                            'country'       => $defaultDvaCountry,
+                                        ]);
+                                        $outcome['dva_created']++;
+                                    } else {
+                                        $outcome['dva_skipped']++;
+                                    }
+
+                                    // Fee allocation
                                     $feeTypeName = trim($row['FeesType']);
-                                    
-                                    //does the feeType alread exist if yes return the feeType ID
-                                    $arrayType = array(
-                                        'name' => $feeTypeName,
-                                        'fee_code' => strtolower(str_replace(' ', '-', $feeTypeName)), 
-                                        'branch_id' => $branchID, 
-                                        'system' => 0, 
-                                    );
-                                    $fee_type_exists  = $this->fees_model->checkExistsData('fees_type', $arrayType);
+                                    $arrayType = [
+                                        'name'      => $feeTypeName,
+                                        'fee_code'  => strtolower(str_replace(' ', '-', $feeTypeName)),
+                                        'branch_id' => $branchID,
+                                        'system'    => 0,
+                                    ];
+                                    $fee_type_exists = $this->fees_model->checkExistsData('fees_type', $arrayType);
                                     if (!$fee_type_exists) {
                                         $this->db->insert('fees_type', $arrayType);
                                         $fee_type_id = $this->db->insert_id();
-                                        log_message('info', ' Student Fee Type Created - '.$fee_type_id);
                                     } else {
                                         $fee_type_id = $fee_type_exists->id;
-                                        log_message('info', ' Student Fee Type Already Exist - '.$fee_type_id);
                                     }
-                                    
 
-                                    //does the feeGroup alread exist if yes return the feeGroup ID
                                     $feeGroupName = trim($row['FeesGroup']);
-                                    $arrayGroup = array(
-                                        'name' => $feeGroupName, 
-                                        'branch_id' => $branchID, 
-                                        'session_id' => $sessionID, 
-                                        'system' => 0, 
-                                    );
-                                    $fee_group_exists  = $this->fees_model->checkExistsData('fee_groups', $arrayGroup);
+                                    $arrayGroup = [
+                                        'name'       => $feeGroupName,
+                                        'branch_id'  => $branchID,
+                                        'session_id' => $sessionID,
+                                        'system'     => 0,
+                                    ];
+                                    $fee_group_exists = $this->fees_model->checkExistsData('fee_groups', $arrayGroup);
                                     if (!$fee_group_exists) {
                                         $this->db->insert('fee_groups', $arrayGroup);
                                         $fee_group_id = $this->db->insert_id();
-                                        log_message('info', ' Student Fee Group Created - '.$fee_group_id);
                                     } else {
                                         $fee_group_id = $fee_group_exists->id;
-                                        log_message('info', ' Student Fee Group Already Exist - '.$fee_group_id);
                                     }
 
-                                    //does the combination of FeeType and FeeGroup exists in Fee Group Details
-                                    $arrayGroupsDetails = array(
-                                        'fee_groups_id' => $fee_group_id, 
-                                        'fee_type_id' => $fee_type_id,
-                                    );
-                                    $fee_group_details_exists = $this->fees_model->checkExistsData('fee_groups_details', $arrayGroupsDetails);
-                                    if (!$fee_group_details_exists) {
-                                        $feeAmount = $row['Fees'];
-                                        // Remove the comma and convert to float
-                                        $numberValue = (float) str_replace(',', '', $feeAmount);
-                                        // Format the number with 2 decimal places
-                                        $formattedfeeAmount = number_format($numberValue, 2, '.', '');
-                                        $arrayGroupsDetails['amount'] = $formattedfeeAmount;
+                                    $arrayGroupsDetails = ['fee_groups_id' => $fee_group_id, 'fee_type_id' => $fee_type_id];
+                                    if (!$this->fees_model->checkExistsData('fee_groups_details', $arrayGroupsDetails)) {
+                                        $numberValue = (float) str_replace(',', '', $row['Fees']);
+                                        $arrayGroupsDetails['amount']   = number_format($numberValue, 2, '.', '');
                                         $arrayGroupsDetails['due_date'] = $row['DueDate'];
                                         $this->db->insert('fee_groups_details', $arrayGroupsDetails);
-                                        $fee_group_details_id = $this->db->insert_id();
-                                        log_message('info', ' Student Fee Group Details Created - '.$fee_group_details_id);
+                                        log_message('info', ' Fee Group Details Created - '.$this->db->insert_id());
                                     }
 
-                                    //allocate the fee details to the student
-                                    $arrayAllocation = array(
-                                        'student_id' => $studentRecord->id, 
-                                        'group_id' => $fee_group_id,
-                                        'branch_id' => $branchID,
-                                        'session_id' => $sessionID,
+                                    // Same-type guard: block double-allocation (finding 4)
+                                    $conflict = $this->fees_model->has_same_type_allocation(
+                                        $studentRecord->id, $fee_group_id, $sessionID
                                     );
-                                    log_message('info', ' Student Fee Allocation Data - '.json_encode($arrayAllocation));
-                                    $fee_allocation_exists = $this->fees_model->checkExistsData('fee_allocation', $arrayAllocation);
-                                    if (!$fee_allocation_exists) {
-                                        $arrayAllocation['prev_due'] = 0.00;
-                                        $this->db->insert('fee_allocation', $arrayAllocation);
-                                        $fee_allocation_id = $this->db->insert_id();
-                                        log_message('info', ' Student Fee Allocation Created - '.$fee_allocation_id);
+                                    if ($conflict !== false) {
+                                        log_message('info', 'Allocation blocked for '.$row['StudentEmail'].' — conflicts with: '.$conflict);
+                                        $outcome['fee_blocked'][] = $row['FirstName'] . ' ' . $row['LastName'] . ' (conflicts with: ' . $conflict . ')';
                                     } else {
-                                        $arrayAllocation['prev_due'] = 0.00;
-                                        $this->db->where('id', $fee_allocation_exists->id);
-                                        $this->db->update('fee_allocation', $arrayAllocation);
-                                        log_message('info', ' Student Fee Allocation Already Exists - '.$fee_allocation_exists->id);
+                                        $arrayAllocation = [
+                                            'student_id' => $studentRecord->id,
+                                            'group_id'   => $fee_group_id,
+                                            'branch_id'  => $branchID,
+                                            'session_id' => $sessionID,
+                                        ];
+                                        $fee_allocation_exists = $this->fees_model->checkExistsData('fee_allocation', $arrayAllocation);
+                                        if (!$fee_allocation_exists) {
+                                            $arrayAllocation['prev_due'] = 0.00;
+                                            $this->db->insert('fee_allocation', $arrayAllocation);
+                                            log_message('info', ' Fee Allocation Created - '.$this->db->insert_id());
+                                            $outcome['fees_allocated']++;
+                                        } else {
+                                            $outcome['fees_existed']++;
+                                        }
                                     }
                                 }
                                 $i++;
@@ -1678,8 +1733,20 @@ class Student extends Admin_Controller
                     if ($err_msg != null) {
                         $this->session->set_flashdata('csvimport', $err_msg);
                     }
-                    if ($i > 0) {
-                        set_alert('success', $i . ' Students Have Been Successfully Added');
+                    $parts = [];
+                    if ($i > 0)                           $parts[] = $i . ' student(s) imported';
+                    if ($outcome['dva_created'] > 0)      $parts[] = $outcome['dva_created'] . ' DVA(s) created';
+                    if ($outcome['dva_skipped'] > 0)      $parts[] = $outcome['dva_skipped'] . ' DVA(s) already existed';
+                    if ($outcome['fees_allocated'] > 0)   $parts[] = $outcome['fees_allocated'] . ' fee(s) allocated';
+                    if ($outcome['fees_existed'] > 0)     $parts[] = $outcome['fees_existed'] . ' fee(s) already existed';
+                    if (!empty($outcome['fee_blocked']))  $parts[] = count($outcome['fee_blocked']) . ' fee(s) skipped — same-type duplicate';
+                    if (!empty($parts)) {
+                        set_alert('success', implode(' | ', $parts));
+                    }
+                    if (!empty($outcome['fee_blocked'])) {
+                        $detail = $this->session->flashdata('csvimport') ?? '';
+                        foreach ($outcome['fee_blocked'] as $s) $detail .= 'Fee blocked: ' . $s . '<br>';
+                        $this->session->set_flashdata('csvimport', $detail);
                     }
                     redirect(base_url("student/csv_import"));
                 } else {
@@ -1701,6 +1768,57 @@ class Student extends Admin_Controller
             ),
         );
         $this->load->view('layout/index', $this->data);
+    }
+
+    public function toggle_fees_status()
+    {
+        if (!get_permission('student', 'is_edit')) {
+            echo json_encode(['status' => 'fail', 'error' => 'Access denied']);
+            return;
+        }
+
+        $studentID = (int) $this->input->post('student_id');
+        $action    = $this->input->post('action'); // 'deactivate' | 'reactivate'
+        $reason    = trim($this->input->post('reason') ?? '');
+
+        if (!$studentID || !in_array($action, ['deactivate', 'reactivate'])) {
+            echo json_encode(['status' => 'fail', 'error' => 'Invalid request']);
+            return;
+        }
+
+        // Branch ownership check
+        if (!is_superadmin_loggedin()) {
+            $ok = $this->db->select('id')
+                ->where('student_id', $studentID)
+                ->where('branch_id', get_loggedin_branch_id())
+                ->get('enroll')->row();
+            if (!$ok) {
+                echo json_encode(['status' => 'fail', 'error' => 'Access denied']);
+                return;
+            }
+        }
+
+        if ($action === 'deactivate') {
+            if (empty($reason)) {
+                echo json_encode(['status' => 'fail', 'error' => 'Reason is required']);
+                return;
+            }
+            $this->db->where('id', $studentID)->update('student', [
+                'fees_active'              => 0,
+                'fees_deactivated_at'      => date('Y-m-d H:i:s'),
+                'fees_deactivated_by'      => $this->session->userdata('id'),
+                'fees_deactivated_reason'  => $reason,
+            ]);
+        } else {
+            $this->db->where('id', $studentID)->update('student', [
+                'fees_active'              => 1,
+                'fees_deactivated_at'      => null,
+                'fees_deactivated_by'      => null,
+                'fees_deactivated_reason'  => null,
+            ]);
+        }
+
+        echo json_encode(['status' => 'success']);
     }
 
 }

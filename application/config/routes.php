@@ -50,10 +50,35 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 |		my-controller/my-method	-> my_controller/my_method
 */
 
+spl_autoload_register(function($className) {
+    if ( substr($className, -6) == "_Addon" ) {
+        $file = APPPATH . 'core/' . $className . '.php';
+        if ( file_exists($file) && is_file($file) ) {
+            @include_once( $file );
+        }
+    }
+});
+
+$routes_path = APPPATH . 'config/my_routes/';
+if (is_dir($routes_path)) {
+	$routes = scandir($routes_path);
+	foreach ($routes as $r_file)
+	{
+	    if ($r_file === '.' || $r_file === '..' || $r_file === 'index.html') {
+	        continue;
+	    }
+        $route_path = $routes_path . $r_file;
+        if (file_exists($route_path)) {
+            @include_once $route_path; 
+        }
+	} 
+}
+
 $route['(:any)/authentication'] = 'authentication/index/$1';
 $route['(:any)/forgot'] = 'authentication/forgot/$1';
 $route['(:any)/teachers'] = 'home/teachers';
 $route['(:any)/events'] = 'home/events';
+$route['(:any)/news'] = 'home/news/';
 $route['(:any)/about'] = 'home/about';
 $route['(:any)/faq'] = 'home/faq';
 $route['(:any)/admission'] = 'home/admission';
@@ -65,6 +90,7 @@ $route['(:any)/certificates'] = 'home/certificates';
 $route['(:any)/page/(:any)'] = 'home/page/$2';
 $route['(:any)/gallery_view/(:any)'] = 'home/gallery_view/$2';
 $route['(:any)/event_view/(:num)'] = 'home/event_view/$2';
+$route['(:any)/news_view/(:any)'] = 'home/news_view/$2';
 
 $route['dashboard'] = 'dashboard/index';
 $route['branch'] = 'branch/index';
@@ -91,6 +117,7 @@ $route['leave'] = 'leave/index';
 $route['award'] = 'award/index';
 $route['classes'] = 'classes/index';
 $route['student_promotion'] = 'student_promotion/index';
+$route['term_dates'] = 'term_dates/index';
 $route['live_class'] = 'live_class/index';
 $route['exam'] = 'exam/index';
 $route['profile'] = 'profile/index';
@@ -99,6 +126,10 @@ $route['sections'] = 'sections/index';
 $route['authentication'] = 'authentication/index';
 $route['home'] = 'home/index';
 $route['404_override'] = 'errors';
-$route['default_controller'] = 'home';
+if (!empty($saas_default) && $saas_default == true) {
+	$route['default_controller'] = 'saas_website/index';
+} else {
+	$route['default_controller'] = 'home';
+}
 $route['(:any)'] = 'home/index/$1';
 $route['translate_uri_dashes'] = FALSE;

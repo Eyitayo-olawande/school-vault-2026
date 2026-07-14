@@ -65,6 +65,16 @@
                         btn.button('reset');
                     } else if (data.status == "access_denied") {
                         window.location.href = base_url + "dashboard";
+                    } else if (data.status == "warning") {
+                        swal({
+                            toast: true,
+                            position: 'top-end',
+                            type: 'warning',
+                            title: data.message,
+                            confirmButtonClass: 'btn btn-default',
+                            buttonsStyling: false,
+                            timer: 12000
+                        });
                     } else {
                         swal({
                             toast: true,
@@ -78,7 +88,7 @@
                     }
                 },
                 complete: function (data) {
-                    btn.button('reset'); 
+                    btn.button('reset');
                 },
                 error: function () {
                     btn.button('reset');
@@ -156,6 +166,16 @@
                         btn.button('reset');
                     } else if (data.status == "access_denied") {
                         window.location.href = base_url + "dashboard";
+                    } else if (data.status == "warning") {
+                        swal({
+                            toast: true,
+                            position: 'top-end',
+                            type: 'warning',
+                            title: data.message,
+                            confirmButtonClass: 'btn btn-default',
+                            buttonsStyling: false,
+                            timer: 12000
+                        });
                     } else {
                         swal({
                             toast: true,
@@ -169,7 +189,7 @@
                     }
                 },
                 complete: function (data) {
-                    btn.button('reset'); 
+                    btn.button('reset');
                 },
                 error: function () {
                     btn.button('reset');

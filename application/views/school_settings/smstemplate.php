@@ -27,6 +27,7 @@
 											'id' => '',
 											'notify_student' => '',
 											'notify_parent' => '',
+											'notify_whatsapp' => '',
 											'dlt_template_id' => '',
 											'template_body' => '',
 										);
@@ -61,6 +62,14 @@
 																	<i></i> <?=translate('parent')?>
 																</label>
 															</div>
+															<?php if (in_array($template['id'], [12,13,14,15,16,17])): ?>
+															<div class="checkbox-replace mt-xs">
+																<label class="i-checks">
+																	<input type="checkbox" name="notify_whatsapp" <?=(!empty($getRow['notify_whatsapp']) ? 'checked' : '');?>>
+																	<i></i> <i class="fab fa-whatsapp text-success"></i> Also send via WhatsApp <small class="text-muted">(Termii — enter WhatsApp number in field 4 of Termii credentials)</small>
+																</label>
+															</div>
+															<?php endif; ?>
 														</div>
 													<?php } else { ?>
 														<div class="form-group">

@@ -312,6 +312,27 @@ class Online_admission extends Admin_Controller
                     saveCustomFields($customField, $studentID);
                 }
 
+                // Create Paystack DVA if student email is present and none exists yet
+                $studentEmail = $stuDetails['email'] ?? ($post['email'] ?? '');
+                if (!empty($studentEmail)) {
+                    $dvaExists = $this->db->where('user_id', $studentID)
+                                          ->get('dedicated_virtual_account')
+                                          ->num_rows() > 0;
+                    if (!$dvaExists) {
+                        $this->load->library('paystack_utility');
+                        $this->paystack_utility->initialize($branchID);
+                        $this->paystack_utility->paystack_get_dva([
+                            'firstname'     => $post['first_name'],
+                            'middlename'    => substr($post['first_name'], 0, 1),
+                            'lastname'      => $post['last_name'] ?? '',
+                            'student_email' => $studentEmail,
+                            'phone'         => $stuDetails['mobileno'] ?? '',
+                            'preferredbank' => 'titan-paystack',
+                            'country'       => 'NG',
+                        ]);
+                    }
+                }
+
                 // send student admission email
                 $this->email_model->studentAdmission($studentData);
                 //send account activate sms

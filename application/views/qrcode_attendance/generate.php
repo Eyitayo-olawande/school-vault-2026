@@ -123,7 +123,7 @@ document.getElementById('btnOpenSession').addEventListener('click', function () 
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
-            <?php echo $this->security->get_csrf_token_name(); ?>: document.cookie.match(/<?=addslashes($this->security->get_csrf_cookie_name())?>=([^;]+)/)?.[1] || '',
+            <?php echo $this->security->get_csrf_token_name(); ?>: document.cookie.match(/<?=addslashes($this->config->item('csrf_cookie_name'))?>=([^;]+)/)?.[1] || '',
             class_id:       '<?=(int)$class_id?>',
             section_id:     '<?=(int)$section_id?>',
             date:           document.getElementById('sessionDate').value,
