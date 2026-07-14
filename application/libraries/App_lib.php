@@ -537,7 +537,7 @@ class App_lib
         if (empty($purchase)) {
             return false;
         }
-        $purchase = json_decode($purchase); 
+        $purchase = json_decode($purchase);
         $array = array();
         if(!is_array($purchase)) {
             return false;
@@ -548,5 +548,17 @@ class App_lib
                 return true;
             }
         }
+    }
+
+    public function getAttendanceType()
+    {
+        $branchID = get_loggedin_branch_id();
+        if (empty($branchID)) {
+            return 2; // superadmin with no branch: show all attendance options
+        }
+        $row = $this->CI->db->select('attendance_type')
+            ->where('id', $branchID)
+            ->get('branch')->row();
+        return isset($row->attendance_type) ? (int)$row->attendance_type : 0;
     }
 }
