@@ -73,6 +73,19 @@
     </form>
 </section>
 
+<?php
+$activeSessionID = get_session_id();
+if ($session_id != $activeSessionID && isset($session_list[$session_id])):
+?>
+<div class="alert alert-warning alert-dismissible">
+    <button type="button" class="close" data-dismiss="alert">&times;</button>
+    <i class="fas fa-history"></i>
+    <strong>Viewing historical session — <?= htmlspecialchars($session_list[$session_id]) ?></strong>
+    &mdash; figures below reflect that session only.
+    <a href="<?= base_url('fees/financial_overview') ?>" class="btn btn-xs btn-warning ml-sm">Reset to Active</a>
+</div>
+<?php endif; ?>
+
 <div class="row">
 
     <!-- KPI Cards -->
@@ -251,6 +264,7 @@
     </div>
 </div>
 
+<script src="<?= base_url('assets/vendor/chartjs/chart.min.js') ?>"></script>
 <script>
 $(document).ready(function() {
     var monthlyData = <?php

@@ -1854,83 +1854,166 @@ class Fees extends Admin_Controller
         if (!get_permission('fees_reports', 'is_view')) {
             access_denied();
         }
-        $branchID  = $this->application_model->get_branch_id() ?: get_loggedin_branch_id() ?: 1;
-        $sessionID = get_session_id();
 
-        $sql = "
+        // --- Filters ---
+        $branchID  = (int)($this->input->get('branch_id') ?: ($this->application_model->get_branch_id() ?: get_loggedin_branch_id() ?: 1));
+        $sessionID = (int)($this->input->get('session_id') ?: get_session_id());
+        $term      = $this->input->get('term', true) ?: '';
+        $daterange = $this->input->get('daterange', true) ?: '';
+
+        // Parse "YYYY-MM-DD - YYYY-MM-DD" or "MM/DD/YYYY - MM/DD/YYYY"
+        $dateFrom = null;
+        $dateTo   = null;
+        if ($daterange && strpos($daterange, ' - ') !== false) {
+            $parts = explode(' - ', $daterange, 2);
+            $df    = date('Y-m-d', strtotime(trim($parts[0])));
+            $dt    = date('Y-m-d', strtotime(trim($parts[1])));
+            if ($df && $dt && $df !== '1970-01-01' && $dt !== '1970-01-01') {
+                $dateFrom = $df;
+                $dateTo   = $dt;
+            }
+        }
+        $dateFiltered = ($dateFrom !== null && $dateTo !== null);
+
+        // --- Session list ---
+        $sessions    = $this->db->order_by('school_year DESC')->get('schoolyear')->result_array();
+        $sessionList = [];
+        foreach ($sessions as $s) {
+            $sessionList[$s['id']] = $s['school_year'];
+        }
+
+        // --- SQL fragments ---
+        $bW    = "fa.session_id = {$sessionID} AND e.branch_id = {$branchID}";
+        $termW = $term ? " AND fg.name LIKE '%" . $this->db->escape_like_str($term) . "%'" : '';
+        $dateW = $dateFiltered
+            ? " AND fph.date BETWEEN " . $this->db->escape($dateFrom) . " AND " . $this->db->escape($dateTo)
+            : '';
+
+        // --- Summary: expected, collected (full term), outstanding ---
+        $summaryRow = $this->db->query("
             SELECT
-                IFNULL(SUM(fgd.amount + fa.prev_due), 0)          AS total_invoiced,
-                IFNULL(SUM(fph.amount + fph.discount), 0)         AS total_collected,
-                IFNULL(SUM(fph.fine), 0)                          AS total_fines,
+                IFNULL(SUM(fgd.amount + fa.prev_due), 0)                         AS expected,
+                IFNULL(SUM(fph.amount + fph.discount), 0)                        AS collected_full,
                 IFNULL(SUM(fgd.amount + fa.prev_due), 0)
-                  - IFNULL(SUM(fph.amount + fph.discount), 0)     AS total_outstanding
+                  - IFNULL(SUM(fph.amount + fph.discount), 0)                    AS outstanding
             FROM fee_allocation fa
-            INNER JOIN enroll e ON e.id = fa.student_id
-            LEFT JOIN fee_groups_details fgd ON fgd.fee_groups_id = fa.group_id
-            LEFT JOIN fee_payment_history fph ON fph.allocation_id = fa.id
-            WHERE fa.session_id = {$sessionID} AND e.branch_id = {$branchID}
-        ";
-        $summary = $this->db->query($sql)->row_array();
+            INNER JOIN enroll e     ON e.id  = fa.student_id
+            LEFT  JOIN fee_groups fg ON fg.id = fa.group_id
+            LEFT  JOIN fee_groups_details fgd ON fgd.fee_groups_id = fa.group_id
+            LEFT  JOIN fee_payment_history fph ON fph.allocation_id = fa.id AND fph.status = 'paid'
+            WHERE {$bW}{$termW}
+        ")->row_array();
 
-        // Monthly collections for current session year.
-        $monthSql = "
-            SELECT DATE_FORMAT(fph.date, '%Y-%m') AS month_key,
-                   DATE_FORMAT(fph.date, '%b %Y') AS month_label,
-                   SUM(fph.amount + fph.discount) AS collected
-            FROM fee_payment_history fph
-            INNER JOIN fee_allocation fa ON fa.id = fph.allocation_id
-            INNER JOIN enroll e ON e.id = fa.student_id
-            WHERE fa.session_id = {$sessionID} AND e.branch_id = {$branchID}
-            GROUP BY DATE_FORMAT(fph.date, '%Y-%m')
-            ORDER BY month_key ASC
-        ";
-        $monthlyData = $this->db->query($monthSql)->result_array();
+        $expected      = (float)$summaryRow['expected'];
+        $collectedFull = (float)$summaryRow['collected_full'];
+        $outstanding   = (float)$summaryRow['outstanding'];
+        $collectionRate = $expected > 0 ? round(($collectedFull / $expected) * 100, 2) : 0;
 
-        // Collection by payment channel (DVA vs cash vs other online).
-        $channelSql = "
-            SELECT
-                CASE
-                    WHEN fph.collect_by = 'online' AND fph.pay_via = 9 THEN 'DVA / Paystack'
-                    WHEN fph.collect_by = 'online'                     THEN 'Other Online'
-                    ELSE 'Cash / Offline'
-                END AS channel,
-                SUM(fph.amount + fph.discount) AS collected,
-                COUNT(*) AS txn_count
-            FROM fee_payment_history fph
-            INNER JOIN fee_allocation fa ON fa.id = fph.allocation_id
-            INNER JOIN enroll e ON e.id = fa.student_id
-            WHERE fa.session_id = {$sessionID} AND e.branch_id = {$branchID}
-            GROUP BY channel
-            ORDER BY collected DESC
-        ";
-        $channelData = $this->db->query($channelSql)->result_array();
+        // Date-filtered collection amount (only differs from full when daterange set)
+        if ($dateFiltered) {
+            $collectedRow = $this->db->query("
+                SELECT IFNULL(SUM(fph.amount + fph.discount), 0) AS collected
+                FROM fee_payment_history fph
+                INNER JOIN fee_allocation fa ON fa.id = fph.allocation_id
+                INNER JOIN enroll e           ON e.id  = fa.student_id
+                LEFT  JOIN fee_groups fg      ON fg.id = fa.group_id
+                WHERE {$bW}{$termW}{$dateW} AND fph.status = 'paid'
+            ")->row_array();
+            $collected = (float)$collectedRow['collected'];
+        } else {
+            $collected = $collectedFull;
+        }
 
-        // Top classes by outstanding balance.
-        $classSql = "
-            SELECT c.name AS class_name,
-                   COUNT(DISTINCT fa.student_id)                       AS student_count,
-                   IFNULL(SUM(fgd.amount + fa.prev_due), 0)           AS invoiced,
-                   IFNULL(SUM(fph.amount + fph.discount), 0)          AS collected,
+        // --- Open exceptions: students whose balance > 0 ---
+        $openExceptions = (int)$this->db->query("
+            SELECT COUNT(*) AS cnt FROM (
+                SELECT fa.student_id
+                FROM fee_allocation fa
+                INNER JOIN enroll e     ON e.id  = fa.student_id
+                LEFT  JOIN fee_groups fg ON fg.id = fa.group_id
+                LEFT  JOIN fee_groups_details fgd ON fgd.fee_groups_id = fa.group_id
+                LEFT  JOIN fee_payment_history fph ON fph.allocation_id = fa.id AND fph.status = 'paid'
+                WHERE {$bW}{$termW}
+                GROUP BY fa.student_id
+                HAVING IFNULL(SUM(fgd.amount + fa.prev_due), 0)
+                         - IFNULL(SUM(fph.amount + fph.discount), 0) > 0
+            ) sub
+        ")->row()->cnt;
+
+        // --- Top 10 students by outstanding balance ---
+        $topOwed = $this->db->query("
+            SELECT e.student_id,
+                   CONCAT(s.first_name, ' ', s.last_name) AS student_name,
+                   s.register_no, c.name AS class_name,
                    IFNULL(SUM(fgd.amount + fa.prev_due), 0)
-                     - IFNULL(SUM(fph.amount + fph.discount), 0)      AS outstanding
+                     - IFNULL(SUM(fph.amount + fph.discount), 0) AS balance
             FROM fee_allocation fa
-            INNER JOIN enroll e ON e.id = fa.student_id
-            INNER JOIN class  c ON c.id = e.class_id
-            LEFT JOIN fee_groups_details   fgd ON fgd.fee_groups_id = fa.group_id
-            LEFT JOIN fee_payment_history  fph ON fph.allocation_id  = fa.id
-            WHERE fa.session_id = {$sessionID} AND e.branch_id = {$branchID}
-            GROUP BY c.id ORDER BY outstanding DESC LIMIT 10
-        ";
-        $classData = $this->db->query($classSql)->result_array();
+            INNER JOIN enroll e     ON e.id  = fa.student_id
+            INNER JOIN student s    ON s.id  = e.student_id
+            INNER JOIN class c      ON c.id  = e.class_id
+            LEFT  JOIN fee_groups fg ON fg.id = fa.group_id
+            LEFT  JOIN fee_groups_details fgd ON fgd.fee_groups_id = fa.group_id
+            LEFT  JOIN fee_payment_history fph ON fph.allocation_id = fa.id AND fph.status = 'paid'
+            WHERE {$bW}{$termW}
+            GROUP BY fa.student_id
+            HAVING balance > 0
+            ORDER BY balance DESC
+            LIMIT 10
+        ")->result_array();
 
-        $this->data['summary']      = $summary;
-        $this->data['monthly_data'] = $monthlyData;
-        $this->data['channel_data'] = $channelData;
-        $this->data['class_data']   = $classData;
+        // --- Recent 10 payments ---
+        $recentPayments = $this->db->query("
+            SELECT fph.date,
+                   CONCAT(s.first_name, ' ', s.last_name) AS student_name,
+                   s.register_no, ft.name AS type_name,
+                   fph.amount + fph.discount AS amount
+            FROM fee_payment_history fph
+            INNER JOIN fee_allocation fa ON fa.id  = fph.allocation_id
+            INNER JOIN enroll e          ON e.id   = fa.student_id
+            INNER JOIN student s         ON s.id   = e.student_id
+            INNER JOIN fees_type ft      ON ft.id  = fph.type_id
+            LEFT  JOIN fee_groups fg     ON fg.id  = fa.group_id
+            WHERE {$bW}{$termW}{$dateW} AND fph.status = 'paid'
+            ORDER BY fph.date DESC, fph.id DESC
+            LIMIT 10
+        ")->result_array();
+
+        // --- Monthly collections ---
+        $monthlyData = $this->db->query("
+            SELECT DATE_FORMAT(fph.date, '%b %Y') AS month,
+                   SUM(fph.amount + fph.discount)  AS net
+            FROM fee_payment_history fph
+            INNER JOIN fee_allocation fa ON fa.id = fph.allocation_id
+            INNER JOIN enroll e          ON e.id  = fa.student_id
+            LEFT  JOIN fee_groups fg     ON fg.id = fa.group_id
+            WHERE {$bW}{$termW}{$dateW} AND fph.status = 'paid'
+            GROUP BY DATE_FORMAT(fph.date, '%Y-%m')
+            ORDER BY DATE_FORMAT(fph.date, '%Y-%m') ASC
+        ")->result_array();
+
+        $this->data['overview'] = [
+            'expected'        => $expected,
+            'collected'       => $collected,
+            'collected_full'  => $collectedFull,
+            'outstanding'     => $outstanding,
+            'collection_rate' => $collectionRate,
+            'open_exceptions' => $openExceptions,
+            'date_filtered'   => $dateFiltered,
+            'top_owed'        => $topOwed,
+            'recent_payments' => $recentPayments,
+            'monthly'         => $monthlyData,
+        ];
+        $this->data['session_id']   = $sessionID;
+        $this->data['session_list'] = $sessionList;
+        $this->data['term']         = $term;
+        $this->data['daterange']    = $daterange;
         $this->data['branch_id']    = $branchID;
         $this->data['title']        = 'Financial Overview';
         $this->data['sub_page']     = 'fees/financial_overview';
         $this->data['main_menu']    = 'fees_repots';
+        $this->data['headerelements'] = [
+            'js' => ['vendor/chartjs/chart.min.js'],
+        ];
         $this->load->view('layout/index', $this->data);
     }
 
