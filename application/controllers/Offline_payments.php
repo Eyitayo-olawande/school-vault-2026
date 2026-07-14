@@ -186,22 +186,24 @@ class Offline_payments extends Admin_Controller
             }
 
             $status = $this->input->post('status');
-            if ($status != 1) {
-                $arrayLeave = array(
-                    'approved_by' => get_loggedin_user_id(),
-                    'status' => $status,
-                    'comments' => $this->input->post('comments'),
-                    'approve_date' => date('Y-m-d H:i:s'),
-                );
-                $id = $this->input->post('id');
-                $this->db->where('id', $id);
-                $this->db->update('offline_fees_payments', $arrayLeave);
-                if ($status == 2) {
-                    $this->offline_payments_model->update($id);
-                }
-                set_alert('success', translate('information_has_been_updated_successfully'));
-
+            if (!in_array($status, ['2', '3'], true)) {
+                set_alert('error', translate('please_select_approved_or_rejected'));
+                redirect(base_url('offline_payments/payments'));
+                return;
             }
+            $arrayLeave = array(
+                'approved_by' => get_loggedin_user_id(),
+                'status' => $status,
+                'comments' => $this->input->post('comments'),
+                'approve_date' => date('Y-m-d H:i:s'),
+            );
+            $id = $this->input->post('id');
+            $this->db->where('id', $id);
+            $this->db->update('offline_fees_payments', $arrayLeave);
+            if ($status == 2) {
+                $this->offline_payments_model->update($id);
+            }
+            set_alert('success', translate('information_has_been_updated_successfully'));
             redirect(base_url('offline_payments/payments'));
         }
     }

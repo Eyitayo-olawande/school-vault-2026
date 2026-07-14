@@ -501,12 +501,12 @@ class Fees extends Admin_Controller
         if (isset($_POST['save'])) {
             $student_array = $this->input->post('stu_operations');
             $student_ids = $this->input->post('student_ids');
-            $student_sel_array = isset($student_array) ? $student_array : array();
-            $delStudent = array_diff($student_ids, $student_sel_array);
+            $student_sel_array = is_array($student_array) ? $student_array : [];
+            $delStudent = array_diff(is_array($student_ids) ? $student_ids : [], $student_sel_array);
             $fee_groupID = $this->input->post('fee_group_id');
             $sessionId = get_session_id();
             $blocked = [];
-            foreach ($student_array as $key => $value) {
+            foreach ($student_sel_array as $key => $value) {
                 $arrayData = array(
                     'student_id' => $value,
                     'group_id' => $fee_groupID,
@@ -1254,7 +1254,18 @@ class Fees extends Admin_Controller
         }
         $array = array('status' => 'success', 'message' => translate('information_deleted'));
         $ids = $this->input->post('id');
+        $branchID = get_loggedin_branch_id();
         foreach ($ids as $key => $value) {
+
+            // Verify the payment belongs to this branch (cross-campus restriction)
+            $branchCheck = $this->db->select('fph.id')->from('fee_payment_history fph')
+                ->join('fee_allocation fa', 'fa.id = fph.allocation_id', 'inner')
+                ->where('fph.id', $value)
+                ->where('fa.branch_id', $branchID)
+                ->get()->row();
+            if (!is_superadmin_loggedin() && empty($branchCheck)) {
+                continue;
+            }
 
             $feeDetails = $this->db->select('id,amount,fine')->where('id', $value)->get('fee_payment_history')->row();
             if (!empty($feeDetails)) {

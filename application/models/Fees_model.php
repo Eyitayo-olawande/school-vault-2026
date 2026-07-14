@@ -199,7 +199,7 @@ class Fees_model extends MY_Model
             $status = 'unpaid';
         } elseif (($balance['total'] + $trans_amount) == ($paid['amount'] + $paid['discount'])) {
             $status = 'total';
-        } elseif ($paid['amount'] > 1) {
+        } elseif (($paid['amount'] + $paid['discount']) > 0) {
             $status = 'partly';
         }
         return array('status' => $status, 'invoice_no' => $invNo);
@@ -378,7 +378,7 @@ class Fees_model extends MY_Model
         if ($feegroup_id == 'transport') {
             $this->datatables->select('IFNULL(SUM(h.amount), 0) as total_amount, IFNULL(SUM(h.discount), 0) as total_discount, sp.route_fare as full_amount,ff.due_date, e.student_id, e.id as enroll_id,e.roll, s.first_name, s.last_name, s.register_no, s.mobileno, c.name as class_name, se.name as section_name');
             $this->datatables->from('transport_fee_details as fa');
-            $this->datatables->join('fee_payment_history as h', 'h ON h.transport_fee_details_id = fa.id', 'left');
+            $this->datatables->join('fee_payment_history as h', 'h.transport_fee_details_id = fa.id', 'left');
             $this->datatables->join('transport_stoppage_point as sp', 'sp.id = fa.stoppage_point_id', 'left');
             $this->datatables->join('transport_fee_fine as ff', 'ff.id = fa.transport_fee_fine_id', 'inner');
             $this->datatables->join('enroll as e', 'e.id = fa.enroll_id', 'inner');;
@@ -389,7 +389,7 @@ class Fees_model extends MY_Model
         } else {
             $this->datatables->select('IFNULL(SUM(h.amount), 0) as total_amount, IFNULL(SUM(h.discount), 0) as total_discount, gd.amount as full_amount, fa.prev_due as prev_due, gd.due_date, e.student_id, e.id as enroll_id,e.roll, s.first_name, s.last_name, s.register_no, s.mobileno, c.name as class_name, se.name as section_name');
             $this->datatables->from('fee_allocation as fa');
-            $this->datatables->join('fee_payment_history as h', 'h ON h.allocation_id = fa.id and h.type_id =' . $this->db->escape($fee_feetype_id), 'left');
+            $this->datatables->join('fee_payment_history as h', 'h.allocation_id = fa.id and h.type_id = ' . $this->db->escape($fee_feetype_id), 'left');
             $this->datatables->join('fee_groups_details as gd', 'gd.fee_groups_id = fa.group_id and gd.fee_type_id =' . $this->db->escape($fee_feetype_id), 'inner');
             $this->datatables->join('enroll as e', 'e.id = fa.student_id', 'inner');
             $this->datatables->where('fa.group_id', $feegroup_id);
