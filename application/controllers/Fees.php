@@ -25,6 +25,15 @@ class Fees extends Admin_Controller
         if (!moduleIsEnabled('student_accounting')) {
             access_denied();
         }
+
+        // Build session list once for all fee-report views that need it.
+        $sessions    = $this->db->order_by('school_year DESC')->get('schoolyear')->result_array();
+        $sessionList = [];
+        foreach ($sessions as $s) {
+            $sessionList[$s['id']] = $s['school_year'];
+        }
+        $this->data['session_list']   = $sessionList;
+        $this->data['active_session'] = get_session_id();
     }
 
     public function index()
@@ -1159,12 +1168,13 @@ class Fees extends Admin_Controller
         }
         $branchID = $this->application_model->get_branch_id();
         if ($this->input->post('search')) {
-            $classID = $this->input->post('class_id');
+            $classID    = $this->input->post('class_id');
             $paymentVia = $this->input->post('payment_via');
-            $daterange = explode(' - ', $this->input->post('daterange'));
+            $sessionID  = (int)($this->input->post('session_id') ?: get_session_id());
+            $daterange  = explode(' - ', $this->input->post('daterange'));
             $start = date("Y-m-d", strtotime($daterange[0]));
-            $end = date("Y-m-d", strtotime($daterange[1]));
-            $this->data['invoicelist'] = $this->fees_model->getStuPaymentHistory($classID, "", $paymentVia, $start, $end, $branchID);
+            $end   = date("Y-m-d", strtotime($daterange[1]));
+            $this->data['invoicelist'] = $this->fees_model->getStuPaymentHistory($classID, "", $paymentVia, $start, $end, $branchID, false, $sessionID);
         }
         $this->data['branch_id'] = $branchID;
         $this->data['title'] = translate('fees_payment_history');
@@ -1189,14 +1199,15 @@ class Fees extends Admin_Controller
         }
         $branchID = $this->application_model->get_branch_id();
         if ($this->input->post('search')) {
-            $classID = $this->input->post('class_id');
+            $classID   = $this->input->post('class_id');
             $sectionID = $this->input->post('section_id');
             $enroll_id = $this->input->post('enroll_id');
-            $typeID = $this->input->post('fees_type');
+            $typeID    = $this->input->post('fees_type');
+            $sessionID = (int)($this->input->post('session_id') ?: get_session_id());
             $daterange = explode(' - ', $this->input->post('daterange'));
             $start = date("Y-m-d", strtotime($daterange[0]));
-            $end = date("Y-m-d", strtotime($daterange[1]));
-            $this->data['invoicelist'] = $this->fees_model->getStuPaymentReport($classID, $sectionID, $enroll_id, $typeID, $start, $end, $branchID);
+            $end   = date("Y-m-d", strtotime($daterange[1]));
+            $this->data['invoicelist'] = $this->fees_model->getStuPaymentReport($classID, $sectionID, $enroll_id, $typeID, $start, $end, $branchID, $sessionID);
         }
         $this->data['branch_id'] = $branchID;
         $this->data['title'] = translate('student_fees_report');
@@ -1221,13 +1232,14 @@ class Fees extends Admin_Controller
         }
         $branchID = $this->application_model->get_branch_id();
         if ($this->input->post('search')) {
-            $classID = $this->input->post('class_id');
-            $sectionID = $this->input->post('section_id');
+            $classID    = $this->input->post('class_id');
+            $sectionID  = $this->input->post('section_id');
             $paymentVia = $this->input->post('payment_via');
-            $daterange = explode(' - ', $this->input->post('daterange'));
+            $sessionID  = (int)($this->input->post('session_id') ?: get_session_id());
+            $daterange  = explode(' - ', $this->input->post('daterange'));
             $start = date("Y-m-d", strtotime($daterange[0]));
-            $end = date("Y-m-d", strtotime($daterange[1]));
-            $this->data['invoicelist'] = $this->fees_model->getStuPaymentHistory($classID, $sectionID, $paymentVia, $start, $end, $branchID, true);
+            $end   = date("Y-m-d", strtotime($daterange[1]));
+            $this->data['invoicelist'] = $this->fees_model->getStuPaymentHistory($classID, $sectionID, $paymentVia, $start, $end, $branchID, true, $sessionID);
         }
         $this->data['branch_id'] = $branchID;
         $this->data['title'] = translate('fees_fine_reports');
