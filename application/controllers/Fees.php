@@ -1610,11 +1610,23 @@ class Fees extends Admin_Controller
             $term      = $this->input->post('term')       ?: '';
             $classID   = $this->input->post('class_id')   ?: '';
             $sectionID = $this->input->post('section_id') ?: '';
-            $this->data['results']    = $this->fees_model->getSessionOutstandingReport($branchID, $sessionID, $term, $classID, $sectionID);
+            $rows = $this->fees_model->getSessionOutstandingReport($branchID, $sessionID, $term, $classID, $sectionID);
+            $this->data['rows']    = $rows;
+            $this->data['totals']  = [
+                'fee_charged'     => array_sum(array_column($rows, 'fee_charged')),
+                'carried_forward' => array_sum(array_column($rows, 'carried_forward')),
+                'total_paid'      => array_sum(array_column($rows, 'total_paid')),
+                'outstanding'     => array_sum(array_column($rows, 'outstanding')),
+            ];
             $this->data['session_id'] = $sessionID;
             $this->data['term']       = $term;
             $this->data['class_id']   = $classID;
             $this->data['section_id'] = $sectionID;
+            $this->data['searched']   = true;
+        } else {
+            $this->data['searched']   = false;
+            $this->data['rows']       = [];
+            $this->data['totals']     = ['fee_charged' => 0, 'carried_forward' => 0, 'total_paid' => 0, 'outstanding' => 0];
         }
 
         $this->data['branch_id'] = $branchID;

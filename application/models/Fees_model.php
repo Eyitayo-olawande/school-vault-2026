@@ -984,29 +984,31 @@ class Fees_model extends MY_Model
 
         $sql = "
             SELECT
-                s.id            AS student_id,
-                s.first_name,
-                s.last_name,
+                s.id                                                 AS student_id,
+                CONCAT(s.first_name, ' ', s.last_name)              AS student_name,
                 s.register_no,
-                c.name          AS class_name,
-                sec.name        AS section_name,
+                c.name                                               AS class_name,
+                sec.name                                             AS section_name,
+                sy.school_year                                       AS session_label,
                 CASE
                     WHEN fg.name LIKE '1ST TERM%'  THEN '1st Term'
                     WHEN fg.name LIKE '2ND TERM%'  THEN '2nd Term'
                     WHEN fg.name LIKE '3RD TERM%'  THEN '3rd Term'
                     ELSE 'Other'
-                END             AS term_label,
-                IFNULL(fgd_sum.charged, 0) + IFNULL(fa.prev_due, 0) AS total_charged,
-                IFNULL(fph_sum.paid,    0)                           AS total_paid,
+                END                                                  AS term,
+                IFNULL(fgd_sum.charged, 0)                          AS fee_charged,
+                IFNULL(fa.prev_due, 0)                              AS carried_forward,
+                IFNULL(fph_sum.paid,    0)                          AS total_paid,
                 (IFNULL(fgd_sum.charged, 0) + IFNULL(fa.prev_due, 0)
-                 - IFNULL(fph_sum.paid, 0))                         AS outstanding
+                 - IFNULL(fph_sum.paid, 0))                        AS outstanding
             FROM fee_allocation fa
             {$termJoin}
-            INNER JOIN enroll   e   ON e.id         = fa.student_id
-            INNER JOIN student  s   ON s.id         = e.student_id
-            INNER JOIN class    c   ON c.id         = e.class_id
-            INNER JOIN section  sec ON sec.id       = e.section_id
-            LEFT  JOIN fee_groups fg ON fg.id       = fa.group_id
+            INNER JOIN enroll      e   ON e.id         = fa.student_id
+            INNER JOIN student     s   ON s.id         = e.student_id
+            INNER JOIN class       c   ON c.id         = e.class_id
+            INNER JOIN section     sec ON sec.id       = e.section_id
+            LEFT  JOIN fee_groups  fg  ON fg.id        = fa.group_id
+            LEFT  JOIN schoolyear  sy  ON sy.id        = fa.session_id
             LEFT JOIN (
                 SELECT fee_groups_id, SUM(amount) AS charged
                 FROM   fee_groups_details
@@ -1022,7 +1024,7 @@ class Fees_model extends MY_Model
               {$classWhere}
               {$sectionWhere}
             HAVING outstanding > 0
-            ORDER BY c.name, sec.name, s.first_name
+            ORDER BY c.name, sec.name, student_name
         ";
 
         return $this->db->query($sql)->result_array();
