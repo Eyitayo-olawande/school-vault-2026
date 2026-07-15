@@ -288,7 +288,7 @@ class Fees_model extends MY_Model
         $this->datatables->join('class as c', 'c.id = e.class_id', 'left');
         $this->datatables->join('section as se', 'se.id = e.section_id', 'left');
         $this->datatables->where('fa.session_id', get_session_id());
-        $this->datatables->where('s.active', 1);
+        // student.active column does not exist in this schema — omitted
         $this->datatables->where('fa.branch_id', $branchID);
         if (!empty($class_id)) {
             $this->datatables->where('e.class_id', $class_id);
@@ -421,7 +421,6 @@ class Fees_model extends MY_Model
         $this->db->join('class as c', 'c.id = e.class_id', 'left');
         $this->db->join('section as se', 'se.id = e.section_id', 'left');
         $this->db->where('fa.session_id', get_session_id());
-        $this->db->where('s.active', 1);
         $this->db->where('e.class_id', $class_id);
         if (!empty($section_id)) {
             $this->db->where('e.section_id', $section_id);
@@ -464,7 +463,6 @@ class Fees_model extends MY_Model
         $this->db->join('payment_types as pt', 'pt.id = h.pay_via', 'left');
         $this->db->where('fa.session_id', $sessionID);
         $this->db->where('e.session_id', $sessionID);
-        $this->db->where('s.active', 1);
         $this->db->where('h.date  >=', $start);
         $this->db->where('h.date <=', $end);
         $this->db->where('e.branch_id', $branchID);
@@ -498,8 +496,7 @@ class Fees_model extends MY_Model
             $this->db->join('section as se', 'se.id = e.section_id', 'left');
             $this->db->join('payment_types as pt', 'pt.id = h.pay_via', 'left');
             $this->db->where('ff.session_id', $sessionID);
-            $this->db->where('s.active', 1);
-            $this->db->where('h.date  >=', $start);
+                $this->db->where('h.date  >=', $start);
             $this->db->where('h.date <=', $end);
             $this->db->where('e.branch_id', $branchID);
             if ($onlyFine == true) {
@@ -556,8 +553,7 @@ class Fees_model extends MY_Model
             $this->db->join('student as s', 's.id = e.student_id', 'inner');
             $this->db->join('payment_types as pt', 'pt.id = h.pay_via', 'left');
             $this->db->where('fa.session_id', $sessionID);
-            $this->db->where('s.active', 1);
-            $this->db->where('h.date >=', $start);
+                $this->db->where('h.date >=', $start);
             $this->db->where('h.date <=', $end);
             $this->db->where('e.branch_id', $branchID);
             $this->db->where('e.class_id', $classID);
@@ -583,8 +579,7 @@ class Fees_model extends MY_Model
             $this->db->join('student as s', 's.id = e.student_id', 'inner');
             $this->db->join('payment_types as pt', 'pt.id = h.pay_via', 'left');
             $this->db->where('ff.session_id', $sessionID);
-            $this->db->where('s.active', 1);
-            $this->db->where('h.date >=', $start);
+                $this->db->where('h.date >=', $start);
             $this->db->where('h.date <=', $end);
             $this->db->where('e.branch_id', $branchID);
             $this->db->where('e.class_id', $classID);
@@ -1024,7 +1019,6 @@ class Fees_model extends MY_Model
             ) fph_sum ON fph_sum.allocation_id = fa.id
             WHERE fa.session_id = {$sessionEsc}
               AND e.branch_id   = {$branchEsc}
-              AND s.active      = 1
               {$classWhere}
               {$sectionWhere}
             HAVING outstanding > 0
@@ -1081,7 +1075,6 @@ class Fees_model extends MY_Model
             ) fph ON fph.allocation_id = fa.id
             WHERE fa.session_id = {$sessionEsc}
               AND e.branch_id   = {$branchEsc}
-              AND s.active = 1
             GROUP BY c.id, sec.id
             ORDER BY c.name, sec.name
         ";

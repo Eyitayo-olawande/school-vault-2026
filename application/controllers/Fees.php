@@ -1778,7 +1778,6 @@ class Fees extends Admin_Controller
             ->from('student s')
             ->join('enroll e', 'e.student_id = s.id', 'inner')
             ->where('e.branch_id', $branchID)
-            ->where('s.active', 1)
             ->group_by('s.id')
             ->get()->result_array();
         $emailMap = [];
@@ -2232,7 +2231,6 @@ class Fees extends Admin_Controller
                 WHERE fa.session_id = {$sessionID}
                 GROUP BY fa.student_id
             ) fph_sum ON fph_sum.enroll_id = e.id
-            WHERE s.active = 1
             ORDER BY ABS(sw.amount - IFNULL(fph_sum.paid, 0)) DESC
         ";
         $rows = $this->db->query($sql)->result_array();
