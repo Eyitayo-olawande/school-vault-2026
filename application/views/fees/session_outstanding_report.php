@@ -111,7 +111,7 @@
                     <div class="col-xs-5">
                         <h4 class="text-right mt-sm text-info">₦<?=number_format($totals['fee_charged'] + $totals['carried_forward'])?></h4>
                     </div>
-                    <div class="col-xs-12"><div class="box-top-line" style="background:#5bc0de"><span class="text-uppercase text-muted">incl. carry-forward</span></div></div>
+                    <div class="col-xs-12"><div class="box-top-line" style="background:#5bc0de"><span class="text-uppercase" style="color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.35);font-weight:600;letter-spacing:.05em">incl. carry-forward</span></div></div>
                 </div>
             </div>
             <div class="col-lg-3 col-sm-6 widget-row-d-br">
@@ -120,7 +120,7 @@
                     <div class="col-xs-5">
                         <h4 class="text-right mt-sm text-success">₦<?=number_format($totals['total_paid'])?></h4>
                     </div>
-                    <div class="col-xs-12"><div class="box-top-line" style="background:#5cb85c"><span class="text-uppercase text-muted">received</span></div></div>
+                    <div class="col-xs-12"><div class="box-top-line" style="background:#5cb85c"><span class="text-uppercase" style="color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.35);font-weight:600;letter-spacing:.05em">received</span></div></div>
                 </div>
             </div>
             <div class="col-lg-3 col-sm-6">
@@ -129,7 +129,7 @@
                     <div class="col-xs-5">
                         <h4 class="text-right mt-sm text-danger">₦<?=number_format($totals['outstanding'])?></h4>
                     </div>
-                    <div class="col-xs-12"><div class="box-top-line" style="background:#d9534f"><span class="text-uppercase text-muted">balance due</span></div></div>
+                    <div class="col-xs-12"><div class="box-top-line" style="background:#d9534f"><span class="text-uppercase" style="color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.35);font-weight:600;letter-spacing:.05em">balance due</span></div></div>
                 </div>
             </div>
         </div>
