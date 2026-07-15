@@ -1630,7 +1630,7 @@ class Fees extends Admin_Controller
         }
 
         $this->data['branch_id'] = $branchID;
-        $this->data['sessions'] = $this->db->select('id, school_year AS session')->order_by('id','DESC')->get('schoolyear')->result_array();
+        $this->data['sessions'] = $this->db->select('id, school_year')->order_by('id','DESC')->get('schoolyear')->result_array();
         $this->data['classes'] = $this->db->select('id, name')->where('branch_id', $branchID)->get('class')->result_array();
         if (is_superadmin_loggedin()) {
             $this->data['branches'] = $this->db->get('branch')->result_array();
@@ -1665,7 +1665,7 @@ class Fees extends Admin_Controller
         }
 
         $this->data['branch_id'] = $branchID;
-        $this->data['sessions'] = $this->db->select('id, school_year AS session')->order_by('id','DESC')->get('schoolyear')->result_array();
+        $this->data['sessions'] = $this->db->select('id, school_year')->order_by('id','DESC')->get('schoolyear')->result_array();
         if (is_superadmin_loggedin()) {
             $this->data['branches'] = $this->db->get('branch')->result_array();
         }
@@ -2199,7 +2199,7 @@ class Fees extends Admin_Controller
         }
 
         $this->data['branch_id'] = $branchID;
-        $this->data['sessions'] = $this->db->select('id, school_year AS session')->order_by('id','DESC')->get('schoolyear')->result_array();
+        $this->data['sessions'] = $this->db->select('id, school_year')->order_by('id','DESC')->get('schoolyear')->result_array();
         $this->data['classes'] = $this->db->select('id, name')->where('branch_id', $branchID)->get('class')->result_array();
         if (is_superadmin_loggedin()) {
             $this->data['branches'] = $this->db->get('branch')->result_array();
