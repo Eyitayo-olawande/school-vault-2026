@@ -453,7 +453,7 @@ class Fees_model extends MY_Model
     public function getStuPaymentHistory($classID = '', $SectionID = '', $paymentVia = '', $start = '', $end = '', $branchID = '', $onlyFine = false, $sessionID = null)
     {
         $sessionID = $sessionID ?: get_session_id();
-        $this->db->select('h.*,ft.name as type_name,e.student_id,e.roll,s.first_name,s.last_name,s.register_no,s.mobileno,c.name as class_name,se.name as section_name,pt.name as pay_via,h.transport_fee_details_id');
+        $this->db->select('h.*,ft.name as type_name,e.student_id,e.roll,s.first_name,s.last_name,s.register_no,s.mobileno,c.name as class_name,se.name as section_name,pt.name as pay_via');
         $this->db->from('fee_payment_history as h');
         $this->db->join('fee_allocation as fa', 'fa.id = h.allocation_id', 'inner');
         $this->db->join('fees_type as ft', 'ft.id = h.type_id', 'left');
@@ -487,8 +487,8 @@ class Fees_model extends MY_Model
         $this->db->order_by('h.id', 'asc');
         $result = $this->db->get()->result_array();
 
-        if (moduleIsEnabled('transport')) {
-            $this->db->select('h.*,ff.month as type_name,e.student_id,e.roll,s.first_name,s.last_name,s.register_no,s.mobileno,c.name as class_name,se.name as section_name,pt.name as pay_via,h.transport_fee_details_id');
+        if (moduleIsEnabled('transport') && $this->db->table_exists('transport_fee_details')) {
+            $this->db->select('h.*,ff.month as type_name,e.student_id,e.roll,s.first_name,s.last_name,s.register_no,s.mobileno,c.name as class_name,se.name as section_name,pt.name as pay_via');
             $this->db->from('fee_payment_history as h');
             $this->db->join('transport_fee_details as fa', 'fa.id = h.transport_fee_details_id', 'inner');
             $this->db->join('transport_fee_fine as ff', 'ff.id = fa.transport_fee_fine_id', 'inner');
@@ -547,7 +547,7 @@ class Fees_model extends MY_Model
 
         }
         if (empty($group) || $group != "transport" ) {
-            $this->db->select('h.*,gd.due_date,ft.name as type_name,e.student_id,e.roll,s.first_name,s.last_name,s.register_no,pt.name as pay_via,h.transport_fee_details_id');
+            $this->db->select('h.*,gd.due_date,ft.name as type_name,e.student_id,e.roll,s.first_name,s.last_name,s.register_no,pt.name as pay_via');
             $this->db->from('fee_payment_history as h');
             $this->db->join('fee_allocation as fa', 'fa.id = h.allocation_id', 'inner');
             $this->db->join('fees_type as ft', 'ft.id = h.type_id', 'left');
@@ -574,8 +574,8 @@ class Fees_model extends MY_Model
              $result1 = [];
         }
 
-        if (empty($group) || $group == "transport" ) {
-            $this->db->select('h.*,ff.due_date,ff.month as type_name,e.student_id,e.roll,s.first_name,s.last_name,s.register_no,pt.name as pay_via,h.transport_fee_details_id');
+        if ((empty($group) || $group == "transport") && $this->db->table_exists('transport_fee_details')) {
+            $this->db->select('h.*,ff.due_date,ff.month as type_name,e.student_id,e.roll,s.first_name,s.last_name,s.register_no,pt.name as pay_via');
             $this->db->from('fee_payment_history as h');
             $this->db->join('transport_fee_details as fa', 'fa.id = h.transport_fee_details_id', 'inner');
             $this->db->join('transport_fee_fine as ff', 'ff.id = fa.transport_fee_fine_id', 'inner');
