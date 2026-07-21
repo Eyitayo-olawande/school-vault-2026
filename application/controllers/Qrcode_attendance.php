@@ -245,6 +245,48 @@ class Qrcode_attendance extends Admin_Controller
         $this->load->view('layout/index', $this->data);
     }
 
+    /** Individual student QR card — printable. */
+    public function student_qr($studentId = 0)
+    {
+        if (!get_permission('qr_code_student_attendance', 'is_add')) {
+            access_denied();
+        }
+        $studentId = (int)$studentId;
+        if (!$studentId) {
+            show_404();
+        }
+        $branchID = $this->application_model->get_branch_id();
+
+        $student = $this->db
+            ->select('s.id as student_id, s.first_name, s.last_name, s.register_no, s.qr_token, s.photo,
+                      e.roll, e.id as enroll_id, e.class_id, e.section_id,
+                      c.name as class_name, sec.name as section_name')
+            ->from('student s')
+            ->join('enroll e', 'e.student_id = s.id')
+            ->join('class c', 'c.id = e.class_id')
+            ->join('section sec', 'sec.id = e.section_id')
+            ->where('s.id', $studentId)
+            ->where('e.branch_id', $branchID)
+            ->get()->row_array();
+
+        if (empty($student)) {
+            show_404();
+        }
+
+        if (empty($student['qr_token'])) {
+            $token = bin2hex(random_bytes(32));
+            $this->db->where('id', $studentId)->update('student', ['qr_token' => $token]);
+            $student['qr_token'] = $token;
+        }
+
+        $this->data['student']   = $student;
+        $this->data['branch_id'] = $branchID;
+        $this->data['title']     = 'Student QR Card';
+        $this->data['sub_page']  = 'qrcode_attendance/student_qr';
+        $this->data['main_menu'] = 'attendance';
+        $this->load->view('layout/index', $this->data);
+    }
+
     /** Generate or fetch QR tokens for all students in a class. */
     private function _get_or_generate_tokens($classID, $sectionID, $branchID)
     {

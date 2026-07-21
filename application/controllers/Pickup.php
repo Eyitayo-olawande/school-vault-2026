@@ -134,6 +134,50 @@ class Pickup extends Admin_Controller
         ]);
     }
 
+    /** Printable QR card for an authorized pickup person. */
+    public function qr_card($id = 0)
+    {
+        if (!get_permission('student_attendance', 'is_add')) {
+            access_denied();
+        }
+        $id       = (int)$id;
+        $branchID = $this->application_model->get_branch_id();
+
+        $person = $this->db
+            ->select('app.*, s.first_name, s.last_name, s.register_no, s.photo as student_photo,
+                      e.class_id, e.section_id, c.name as class_name, sec.name as section_name')
+            ->from('authorized_pickup_person app')
+            ->join('student s', 's.id = app.student_id')
+            ->join('enroll e', 'e.student_id = s.id')
+            ->join('class c', 'c.id = e.class_id')
+            ->join('section sec', 'sec.id = e.section_id')
+            ->where('app.id', $id)
+            ->where('app.branch_id', $branchID)
+            ->get()->row_array();
+
+        if (empty($person)) {
+            show_404();
+        }
+
+        $this->load->library('Ciqrcode');
+        ob_start();
+        $this->ciqrcode->generate([
+            'data'     => $person['qr_token'],
+            'savename' => null,
+            'level'    => 'L',
+            'size'     => 7,
+        ]);
+        $imgBytes = ob_get_clean();
+
+        $this->data['person']    = $person;
+        $this->data['qr_data_uri'] = 'data:image/png;base64,' . base64_encode($imgBytes);
+        $this->data['branch_id'] = $branchID;
+        $this->data['title']     = 'Pickup QR Card';
+        $this->data['sub_page']  = 'pickup/qr_card';
+        $this->data['main_menu'] = 'attendance';
+        $this->load->view('layout/index', $this->data);
+    }
+
     /** AJAX: get students for branch (for add-person form dropdown). */
     public function get_students()
     {

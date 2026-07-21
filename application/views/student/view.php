@@ -147,6 +147,12 @@
 								data-original-title="<?=translate('details')?>">
 									<i class="far fa-arrow-alt-circle-right"></i>
 								</a>
+							<?php endif; if (get_permission('qr_code_student_attendance', 'is_add')): ?>
+								<!-- QR card link -->
+								<a href="<?=base_url('qrcode_attendance/student_qr/' . $row['student_id'])?>" class="btn btn-default btn-circle icon" data-toggle="tooltip"
+								data-original-title="QR Card" target="_blank">
+									<i class="fas fa-qrcode"></i>
+								</a>
 							<?php endif; if (get_permission('student', 'is_delete')): ?>
 								<!-- delete link -->
 								<?php echo btn_delete('student/delete_data/' . $row['id'] . '/' . $row['student_id']);?>
