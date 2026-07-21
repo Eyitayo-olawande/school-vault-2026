@@ -185,6 +185,26 @@ class Exam_model extends CI_Model
         return $this->db->get()->result_array();
     }
 
+    public function log_mark_audit($action, $mark_id, array $payload, $old_mark = null, $old_absent = null)
+    {
+        $this->db->insert('mark_audit', [
+            'mark_id'    => $mark_id,
+            'student_id' => $payload['student_id'],
+            'subject_id' => $payload['subject_id'],
+            'exam_id'    => $payload['exam_id'],
+            'class_id'   => $payload['class_id'],
+            'section_id' => $payload['section_id'],
+            'session_id' => $payload['session_id'],
+            'branch_id'  => $payload['branch_id'],
+            'action'     => $action,
+            'old_mark'   => $old_mark,
+            'new_mark'   => isset($payload['mark'])   ? $payload['mark']   : null,
+            'old_absent' => $old_absent,
+            'new_absent' => isset($payload['absent']) ? $payload['absent'] : null,
+            'changed_by' => get_loggedin_id(),
+        ]);
+    }
+
     public function getStudentReportCard($studentID, $examID, $sessionID)
     {
         $result = array();

@@ -91,6 +91,12 @@
 		</section>
 		
 		<?php if (isset($student)): ?>
+		<?php if (!empty($exam_locked)): ?>
+		<div class="alert alert-warning">
+			<i class="fas fa-lock"></i> <strong>Marks Locked.</strong>
+			This exam's marks have been locked by an administrator and cannot be edited. Contact an administrator to unlock.
+		</div>
+		<?php endif; ?>
 		<section class="panel appear-animation" data-appear-animation="<?php echo $global_config['animations'];?>" data-appear-animation-delay="100">
 			<?php echo form_open('exam/mark_save', array('class' => 'frm-submit-msg'));
 				$data = array(
@@ -171,8 +177,14 @@
 			<div class="panel-footer">
 				<div class="row">
 					<div class="col-md-offset-10 col-md-2">
-						<button type="submit" class="btn btn-default btn-block" data-loading-text="<i class='fas fa-spinner fa-spin'></i> Processing">
+						<button type="submit" class="btn btn-default btn-block"
+							<?php if (!empty($exam_locked)): ?>disabled title="Marks are locked"<?php endif; ?>
+							data-loading-text="<i class='fas fa-spinner fa-spin'></i> Processing">
+							<?php if (!empty($exam_locked)): ?>
+							<i class="fas fa-lock"></i> <?=translate('locked')?>
+							<?php else: ?>
 							<i class="fas fa-plus-circle"></i> <?=translate('save')?>
+							<?php endif; ?>
 						</button>
 					</div>
 				</div>

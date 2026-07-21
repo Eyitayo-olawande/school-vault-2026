@@ -351,25 +351,29 @@ class Exam extends Admin_Controller
             access_denied();
         }
 
-        $branchID = $this->application_model->get_branch_id();
-        $classID = $this->input->post('class_id');
+        $branchID  = $this->application_model->get_branch_id();
+        $classID   = $this->input->post('class_id');
         $sectionID = $this->input->post('section_id');
         $subjectID = $this->input->post('subject_id');
-        $examID = $this->input->post('exam_id');
+        $examID    = $this->input->post('exam_id');
 
-        $this->data['branch_id'] = $branchID;
-        $this->data['class_id'] = $classID;
-        $this->data['section_id'] = $sectionID;
-        $this->data['subject_id'] = $subjectID;
-        $this->data['exam_id'] = $examID;
+        $this->data['branch_id']   = $branchID;
+        $this->data['class_id']    = $classID;
+        $this->data['section_id']  = $sectionID;
+        $this->data['subject_id']  = $subjectID;
+        $this->data['exam_id']     = $examID;
+        $this->data['exam_locked'] = 0;
+
         if (isset($_POST['search'])) {
             $this->data['timetable_detail'] = $this->exam_model->getTimetableDetail($classID, $sectionID, $examID, $subjectID);
-            $this->data['student'] = $this->exam_model->getMarkAndStudent($branchID, $classID, $sectionID, $examID, $subjectID);
+            $this->data['student']          = $this->exam_model->getMarkAndStudent($branchID, $classID, $sectionID, $examID, $subjectID);
+            $examRow = $this->db->select('mark_locked')->where('id', $examID)->get('exam')->row();
+            $this->data['exam_locked'] = $examRow ? (int) $examRow->mark_locked : 0;
         }
 
-        $this->data['sub_page'] = 'exam/marks_register';
+        $this->data['sub_page']  = 'exam/marks_register';
         $this->data['main_menu'] = 'mark';
-        $this->data['title'] = translate('mark_entries');
+        $this->data['title']     = translate('mark_entries');
         $this->load->view('layout/index', $this->data);
     }
 
@@ -379,6 +383,39 @@ class Exam extends Admin_Controller
             if (!get_permission('exam_mark', 'is_add')) {
                 ajax_access_denied();
             }
+
+            $examID    = $this->input->post('exam_id');
+            $branchID  = $this->application_model->get_branch_id();
+            $classID   = $this->input->post('class_id');
+            $sectionID = $this->input->post('section_id');
+            $subjectID = $this->input->post('subject_id');
+
+            // Fix 4: Reject saves when exam marks are locked
+            $examRow = $this->db->select('mark_locked')->where('id', $examID)->get('exam')->row();
+            if ($examRow && $examRow->mark_locked != 0) {
+                echo json_encode(['status' => 'fail', 'error' => ['lock' => 'This exam\'s marks have been locked. Contact an administrator to unlock.']]);
+                return;
+            }
+
+            // Fix 3: Enforce teacher–subject assignment (skip for superadmin and admin)
+            if (is_teacher_loggedin()) {
+                $staffID    = (int) get_loggedin_user_id();
+                $assignment = $this->db->select('teacher_id')
+                    ->where([
+                        'class_id'   => $classID,
+                        'section_id' => $sectionID,
+                        'subject_id' => $subjectID,
+                        'session_id' => get_session_id(),
+                        'branch_id'  => $branchID,
+                    ])
+                    ->where('teacher_id >', 0)
+                    ->get('subject_assign')->row();
+                if ($assignment !== null && (int) $assignment->teacher_id !== $staffID) {
+                    echo json_encode(['status' => 'fail', 'error' => ['auth' => 'You are not assigned to teach this subject for this class.']]);
+                    return;
+                }
+            }
+
             $inputMarks = $this->input->post('mark');
             foreach ($inputMarks as $key => $value) {
                 if (!isset($value['absent'])) {
@@ -389,11 +426,6 @@ class Exam extends Admin_Controller
                 }
             }
             if ($this->form_validation->run() !== false) {
-                $branchID = $this->application_model->get_branch_id();
-                $classID = $this->input->post('class_id');
-                $sectionID = $this->input->post('section_id');
-                $subjectID = $this->input->post('subject_id');
-                $examID = $this->input->post('exam_id');
                 $inputMarks = $this->input->post('mark');
                 foreach ($inputMarks as $key => $value) {
                     $assMark = array();
@@ -402,36 +434,46 @@ class Exam extends Admin_Controller
                     }
                     $arrayMarks = array(
                         'student_id' => $value['student_id'],
-                        'exam_id' => $examID,
-                        'class_id' => $classID,
+                        'exam_id'    => $examID,
+                        'class_id'   => $classID,
                         'section_id' => $sectionID,
                         'subject_id' => $subjectID,
-                        'branch_id' => $branchID,
+                        'branch_id'  => $branchID,
                         'session_id' => get_session_id(),
                     );
                     $inputMark = (isset($value['absent']) ? null : json_encode($assMark));
-                    $absent = (isset($value['absent']) ? 'on' : '');
-                    $query = $this->db->get_where('mark', $arrayMarks);
+                    $absent    = (isset($value['absent']) ? 'on' : '');
+                    $query     = $this->db->get_where('mark', $arrayMarks);
                     if ($query->num_rows() > 0) {
-						if(in_array('',$assMark) & !isset($value['absent'])) {
-							$this->db->where('id', $query->row()->id);
-							$this->db->delete('mark');
-						} else {
-							$this->db->where('id', $query->row()->id);
-							$this->db->update('mark', array('mark' => $inputMark, 'absent' => $absent));	
-						}
+                        $existing = $query->row();
+                        if (in_array('', $assMark) && !isset($value['absent'])) {
+                            // Fix 2: Log DELETE before removing
+                            $this->exam_model->log_mark_audit('DELETE', $existing->id, $arrayMarks, $existing->mark, $existing->absent);
+                            $this->db->where('id', $existing->id);
+                            $this->db->delete('mark');
+                        } else {
+                            // Fix 2: Log UPDATE with old values
+                            $arrayMarks['mark']   = $inputMark;
+                            $arrayMarks['absent'] = $absent;
+                            $this->exam_model->log_mark_audit('UPDATE', $existing->id, $arrayMarks, $existing->mark, $existing->absent);
+                            $this->db->where('id', $existing->id);
+                            $this->db->update('mark', ['mark' => $inputMark, 'absent' => $absent]);
+                        }
                     } else {
-						if(!in_array('',$assMark) || isset($value['absent'])) {
-							$arrayMarks['mark'] = $inputMark;
-							$arrayMarks['absent'] = $absent;
-							$this->db->insert('mark', $arrayMarks);
-							// send exam results sms
-							$this->sms_model->send_sms($arrayMarks, 5);
-						}
+                        if (!in_array('', $assMark) || isset($value['absent'])) {
+                            $arrayMarks['mark']   = $inputMark;
+                            $arrayMarks['absent'] = $absent;
+                            $this->db->insert('mark', $arrayMarks);
+                            $newID = $this->db->insert_id();
+                            // Fix 2: Log INSERT
+                            $this->exam_model->log_mark_audit('INSERT', $newID, $arrayMarks);
+                            // send exam results sms
+                            $this->sms_model->send_sms($arrayMarks, 5);
+                        }
                     }
                 }
                 $message = translate('information_has_been_saved_successfully');
-                $array = array('status' => 'success', 'message' => $message);
+                $array   = array('status' => 'success', 'message' => $message);
             } else {
                 $error = $this->form_validation->error_array();
                 $array = array('status' => 'fail', 'error' => $error);
@@ -706,25 +748,48 @@ class Exam extends Admin_Controller
                     $q = $this->db->select('id')->where(array('exam_id' => $examID, 'enroll_id' => $value['enroll_id']))->get('exam_rank');
                     if ($q->num_rows() == 0) {
                         $arrayRank = array(
-                            'rank' => $value['position'], 
-                            'teacher_comments' => $value['teacher_comments'], 
-                            'principal_comments' => $value['principal_comments'], 
-                            'enroll_id' => $value['enroll_id'], 
-                            'exam_id' => $examID, 
+                            'rank'               => $value['position'],
+                            'teacher_comments'   => $value['teacher_comments'],
+                            'principal_comments' => $value['principal_comments'],
+                            'enroll_id'          => $value['enroll_id'],
+                            'exam_id'            => $examID,
                         );
                         $this->db->insert('exam_rank', $arrayRank);
                     } else {
                         $this->db->where('id', $q->row()->id);
-                        $this->db->update('exam_rank', ['rank' => $value['position'], 'teacher_comments' => $value['teacher_comments'] , 'principal_comments' => $value['principal_comments']]);
+                        $this->db->update('exam_rank', ['rank' => $value['position'], 'teacher_comments' => $value['teacher_comments'], 'principal_comments' => $value['principal_comments']]);
                     }
                 }
+                // Fix 4: Mark positions as generated on the exam record
+                if (!is_superadmin_loggedin()) {
+                    $this->db->where('branch_id', get_loggedin_branch_id());
+                }
+                $this->db->where('id', $examID);
+                $this->db->update('exam', ['rank_generated' => 1]);
+
                 $message = translate('information_has_been_saved_successfully');
-                $array = array('status' => 'success', 'message' => $message);
+                $array   = array('status' => 'success', 'message' => $message);
             } else {
                 $error = $this->form_validation->error_array();
                 $array = array('status' => 'fail', 'error' => $error);
             }
             echo json_encode($array);
         }
+    }
+
+    // Fix 4: Lock / unlock mark entry for an exam
+    public function lock_marks()
+    {
+        if (!get_permission('exam', 'is_add')) {
+            ajax_access_denied();
+        }
+        $id     = (int) $this->input->post('id');
+        $locked = $this->input->post('locked') ? 1 : 0;
+        if (!is_superadmin_loggedin()) {
+            $this->db->where('branch_id', get_loggedin_branch_id());
+        }
+        $this->db->where('id', $id);
+        $this->db->update('exam', ['mark_locked' => $locked]);
+        echo json_encode(['status' => true, 'msg' => translate('information_has_been_updated_successfully'), 'locked' => $locked]);
     }
 }

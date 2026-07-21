@@ -25,6 +25,7 @@
 							<th><?=translate('mark_distribution')?></th>
 							<th><?=translate('publish')?></th>
 							<th><?=translate('publish_result')?></th>
+							<th>Marks Lock</th>
 							<th><?=translate('remarks')?></th>
 							<th><?=translate('action')?></th>
 						</tr>
@@ -68,6 +69,22 @@
 									type="checkbox" <?php echo ($row['publish_result'] == 1 ? 'checked' : ''); ?> />
 									<label for="switchResult_<?=$row['id']?>" class="label-primary"></label>
 								</div>
+							</td>
+							<td>
+								<?php if ($row['mark_locked']): ?>
+									<span class="label label-danger"><i class="fas fa-lock"></i> Locked</span>
+								<?php else: ?>
+									<span class="label label-success"><i class="fas fa-lock-open"></i> Open</span>
+								<?php endif; ?>
+								<?php if (get_permission('exam', 'is_add')): ?>
+								<div class="material-switch ml-xs mt-xs">
+									<input class="exam-lock-switch" id="switchLock_<?=$row['id']?>"
+										data-id="<?=$row['id']?>"
+										type="checkbox"
+										<?php echo ($row['mark_locked'] ? 'checked' : ''); ?> />
+									<label for="switchLock_<?=$row['id']?>" class="label-danger"></label>
+								</div>
+								<?php endif; ?>
 							</td>
 							<td><?php echo $row['remark']; ?></td>
 							<td class="min-w-xs">
@@ -259,6 +276,30 @@
 					}
 				});
 			}
+		});
+
+		// mark lock status
+		$(".exam-lock-switch").on("change", function() {
+			var locked = $(this).prop('checked') ? 1 : 0;
+			var id     = $(this).data('id');
+			var $row   = $(this).closest('tr');
+			$.ajax({
+				type: 'POST',
+				url: base_url + "exam/lock_marks",
+				data: { id: id, locked: locked },
+				dataType: "json",
+				success: function(data) {
+					if (data.status == true) {
+						alertMsg(data.msg);
+						var $badge = $row.find('.label');
+						if (data.locked) {
+							$badge.removeClass('label-success').addClass('label-danger').html('<i class="fas fa-lock"></i> Locked');
+						} else {
+							$badge.removeClass('label-danger').addClass('label-success').html('<i class="fas fa-lock-open"></i> Open');
+						}
+					}
+				}
+			});
 		});
 	});
 </script>
