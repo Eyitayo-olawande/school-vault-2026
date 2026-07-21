@@ -255,23 +255,29 @@ class Qrcode_attendance extends Admin_Controller
         if (!$studentId) {
             show_404();
         }
-        $branchID = $this->application_model->get_branch_id();
 
-        $student = $this->db
+        $q = $this->db
             ->select('s.id as student_id, s.first_name, s.last_name, s.register_no, s.qr_token, s.photo,
-                      e.roll, e.id as enroll_id, e.class_id, e.section_id,
+                      e.roll, e.id as enroll_id, e.class_id, e.section_id, e.branch_id,
                       c.name as class_name, sec.name as section_name')
             ->from('student s')
             ->join('enroll e', 'e.student_id = s.id')
             ->join('class c', 'c.id = e.class_id')
             ->join('section sec', 'sec.id = e.section_id')
-            ->where('s.id', $studentId)
-            ->where('e.branch_id', $branchID)
-            ->get()->row_array();
+            ->where('s.id', $studentId);
+
+        // Non-superadmins are scoped to their branch
+        if (!is_superadmin_loggedin()) {
+            $q->where('e.branch_id', get_loggedin_branch_id());
+        }
+
+        $student = $q->get()->row_array();
 
         if (empty($student)) {
             show_404();
         }
+
+        $branchID = $student['branch_id'];
 
         if (empty($student['qr_token'])) {
             $token = bin2hex(random_bytes(32));
