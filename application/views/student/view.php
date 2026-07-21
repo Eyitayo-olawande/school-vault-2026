@@ -53,8 +53,22 @@
 		</section>
 
 		<?php if (isset($students)):?>
+		<!-- Hidden form to bulk-print QR sheet for current class/section -->
+		<form id="qr_sheet_form" action="<?=base_url('qrcode_attendance/generate')?>" method="post" target="_blank" style="display:none;">
+			<input type="hidden" name="<?=$this->security->get_csrf_token_name()?>" value="<?=$this->security->get_csrf_hash()?>">
+			<input type="hidden" name="class_id" value="<?=set_value('class_id')?>">
+			<input type="hidden" name="section_id" value="<?=set_value('section_id')?>">
+		</form>
 		<section class="panel appear-animation" data-appear-animation="<?=$global_config['animations'] ?>" data-appear-animation-delay="100">
 			<header class="panel-heading">
+			<?php if (get_permission('student', 'is_view')): ?>
+				<div class="panel-btn">
+					<button type="button" onclick="document.getElementById('qr_sheet_form').submit()"
+						class="btn btn-default btn-circle" title="Print QR Sheet for this class">
+						<i class="fas fa-qrcode"></i> Print QR Sheet
+					</button>
+				</div>
+			<?php endif; ?>
 			<?php if (get_permission('student', 'is_delete')): ?>
 				<div class="panel-btn">
 					<button class="btn btn-default btn-circle" id="student_bulk_delete" data-loading-text="<i class='fas fa-spinner fa-spin'></i> Processing">
@@ -147,7 +161,7 @@
 								data-original-title="<?=translate('details')?>">
 									<i class="far fa-arrow-alt-circle-right"></i>
 								</a>
-							<?php endif; if (get_permission('qr_code_student_attendance', 'is_add')): ?>
+							<?php endif; if (get_permission('student', 'is_view')): ?>
 								<!-- QR card link -->
 								<a href="<?=base_url('qrcode_attendance/student_qr/' . $row['student_id'])?>" class="btn btn-default btn-circle icon" data-toggle="tooltip"
 								data-original-title="QR Card" target="_blank">

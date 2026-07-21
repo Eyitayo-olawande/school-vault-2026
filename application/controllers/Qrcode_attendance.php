@@ -248,7 +248,7 @@ class Qrcode_attendance extends Admin_Controller
     /** Individual student QR card — printable. */
     public function student_qr($studentId = 0)
     {
-        if (!get_permission('qr_code_student_attendance', 'is_add')) {
+        if (!get_permission('student', 'is_view')) {
             access_denied();
         }
         $studentId = (int)$studentId;
