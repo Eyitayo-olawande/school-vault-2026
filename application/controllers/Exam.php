@@ -792,4 +792,144 @@ class Exam extends Admin_Controller
         $this->db->update('exam', ['mark_locked' => $locked]);
         echo json_encode(['status' => true, 'msg' => translate('information_has_been_updated_successfully'), 'locked' => $locked]);
     }
+
+    // Phase 2 — Affective Domain entry page
+    public function affective()
+    {
+        if (!get_permission('exam_mark', 'is_add')) {
+            access_denied();
+        }
+        $branchID  = $this->application_model->get_branch_id();
+        $classID   = $this->input->post('class_id');
+        $sectionID = $this->input->post('section_id');
+        $examID    = $this->input->post('exam_id');
+
+        $this->data['branch_id']    = $branchID;
+        $this->data['class_id']     = $classID;
+        $this->data['section_id']   = $sectionID;
+        $this->data['exam_id']      = $examID;
+        $this->data['domain_types'] = [];
+        $this->data['students']     = [];
+
+        if (isset($_POST['search'])) {
+            $this->data['domain_types'] = $this->db->where('branch_id', $branchID)->order_by('sort_order','ASC')->get('affective_domain_type')->result_array();
+            $this->data['students']     = $this->exam_model->searchExamStudentsByRank($classID, $sectionID, get_session_id(), $examID, $branchID);
+            $this->data['ratings']      = [];
+            foreach ($this->data['students'] as $st) {
+                foreach ($this->data['domain_types'] as $dt) {
+                    $r = $this->db->get_where('student_affective', ['enroll_id' => $st->id, 'exam_id' => $examID, 'domain_type_id' => $dt['id']])->row();
+                    $this->data['ratings'][$st->id][$dt['id']] = $r ? $r->rating : 0;
+                }
+            }
+        }
+
+        $this->data['sub_page']  = 'exam/affective';
+        $this->data['main_menu'] = 'mark';
+        $this->data['title']     = 'Affective Domain';
+        $this->load->view('layout/index', $this->data);
+    }
+
+    public function affective_save()
+    {
+        if ($_POST) {
+            if (!get_permission('exam_mark', 'is_add')) {
+                ajax_access_denied();
+            }
+            $branchID  = $this->application_model->get_branch_id();
+            $examID    = $this->input->post('exam_id');
+            $ratings   = $this->input->post('rating') ?: [];
+
+            foreach ($ratings as $enrollID => $domains) {
+                foreach ($domains as $domainTypeID => $rating) {
+                    $rating = max(0, min(4, (int) $rating));
+                    $exists = $this->db->get_where('student_affective', ['enroll_id' => $enrollID, 'exam_id' => $examID, 'domain_type_id' => $domainTypeID])->row();
+                    if ($exists) {
+                        $this->db->where('id', $exists->id)->update('student_affective', ['rating' => $rating]);
+                    } else {
+                        $this->db->insert('student_affective', ['enroll_id' => $enrollID, 'exam_id' => $examID, 'domain_type_id' => $domainTypeID, 'rating' => $rating, 'branch_id' => $branchID]);
+                    }
+                }
+            }
+            echo json_encode(['status' => 'success', 'message' => translate('information_has_been_saved_successfully')]);
+        }
+    }
+
+    // Phase 2 — Psychomotor Domain entry page
+    public function psychomotor()
+    {
+        if (!get_permission('exam_mark', 'is_add')) {
+            access_denied();
+        }
+        $branchID  = $this->application_model->get_branch_id();
+        $classID   = $this->input->post('class_id');
+        $sectionID = $this->input->post('section_id');
+        $examID    = $this->input->post('exam_id');
+
+        $this->data['branch_id']    = $branchID;
+        $this->data['class_id']     = $classID;
+        $this->data['section_id']   = $sectionID;
+        $this->data['exam_id']      = $examID;
+        $this->data['domain_types'] = [];
+        $this->data['students']     = [];
+
+        if (isset($_POST['search'])) {
+            $this->data['domain_types'] = $this->db->where('branch_id', $branchID)->order_by('sort_order','ASC')->get('psychomotor_domain_type')->result_array();
+            $this->data['students']     = $this->exam_model->searchExamStudentsByRank($classID, $sectionID, get_session_id(), $examID, $branchID);
+            $this->data['ratings']      = [];
+            foreach ($this->data['students'] as $st) {
+                foreach ($this->data['domain_types'] as $dt) {
+                    $r = $this->db->get_where('student_psychomotor', ['enroll_id' => $st->id, 'exam_id' => $examID, 'domain_type_id' => $dt['id']])->row();
+                    $this->data['ratings'][$st->id][$dt['id']] = $r ? $r->rating : 0;
+                }
+            }
+        }
+
+        $this->data['sub_page']  = 'exam/psychomotor';
+        $this->data['main_menu'] = 'mark';
+        $this->data['title']     = 'Psychomotor Domain';
+        $this->load->view('layout/index', $this->data);
+    }
+
+    public function psychomotor_save()
+    {
+        if ($_POST) {
+            if (!get_permission('exam_mark', 'is_add')) {
+                ajax_access_denied();
+            }
+            $branchID  = $this->application_model->get_branch_id();
+            $examID    = $this->input->post('exam_id');
+            $ratings   = $this->input->post('rating') ?: [];
+
+            foreach ($ratings as $enrollID => $domains) {
+                foreach ($domains as $domainTypeID => $rating) {
+                    $rating = max(0, min(4, (int) $rating));
+                    $exists = $this->db->get_where('student_psychomotor', ['enroll_id' => $enrollID, 'exam_id' => $examID, 'domain_type_id' => $domainTypeID])->row();
+                    if ($exists) {
+                        $this->db->where('id', $exists->id)->update('student_psychomotor', ['rating' => $rating]);
+                    } else {
+                        $this->db->insert('student_psychomotor', ['enroll_id' => $enrollID, 'exam_id' => $examID, 'domain_type_id' => $domainTypeID, 'rating' => $rating, 'branch_id' => $branchID]);
+                    }
+                }
+            }
+            echo json_encode(['status' => 'success', 'message' => translate('information_has_been_saved_successfully')]);
+        }
+    }
+
+    // Phase 2 — Auto-generate positions with DENSE_RANK
+    public function generate_positions()
+    {
+        if ($_POST) {
+            if (!get_permission('generate_position', 'is_view')) {
+                ajax_access_denied();
+            }
+            $branchID  = $this->application_model->get_branch_id();
+            $classID   = $this->input->post('class_id');
+            $sectionID = $this->input->post('section_id');
+            $examID    = $this->input->post('exam_id');
+            $sessionID = $this->input->post('session_id');
+
+            $result = $this->exam_model->computeAndSavePositions($examID, $classID, $sectionID, $sessionID, $branchID);
+            echo json_encode(['status' => 'success', 'message' => 'Positions generated for ' . $result['total_students'] . ' students.', 'ranks' => $result['ranks']]);
+        }
+    }
 }

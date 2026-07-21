@@ -295,7 +295,16 @@
 				</div>
 				<div class="panel-footer">
 					<div class="row">
-						<div class="col-md-offset-10 col-md-2">
+						<div class="col-md-4">
+							<button type="button" id="btnGeneratePositions" class="btn btn-primary btn-block"
+								data-exam="<?php echo $exam_details->id; ?>"
+								data-class="<?php echo set_value('class_id'); ?>"
+								data-section="<?php echo set_value('section_id'); ?>"
+								data-session="<?php echo set_value('session_id', get_session_id()); ?>">
+								<i class="fas fa-magic"></i> Generate Positions (Auto)
+							</button>
+						</div>
+						<div class="col-md-offset-6 col-md-2">
 							<button type="submit" class="btn btn-default btn-block" data-loading-text="<i class='fas fa-spinner fa-spin'></i> Processing">
 								<i class="fas fa-plus-circle"></i> <?=translate('save')?>
 							</button>
@@ -313,6 +322,35 @@
 			var branchID = $(this).val();
 			getClassByBranch(branchID);
 			getExamByBranch(branchID);
+		});
+
+		$('#btnGeneratePositions').on('click', function() {
+			var $btn = $(this);
+			$btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Generating...');
+			$.ajax({
+				type: 'POST',
+				url: base_url + 'exam/generate_positions',
+				data: {
+					exam_id:    $btn.data('exam'),
+					class_id:   $btn.data('class'),
+					section_id: $btn.data('section'),
+					session_id: $btn.data('session')
+				},
+				dataType: 'json',
+				success: function(data) {
+					if (data.status === 'success') {
+						alertMsg(data.message);
+						setTimeout(function() { location.reload(); }, 1200);
+					} else {
+						alertMsg(data.message || 'Failed to generate positions.');
+						$btn.prop('disabled', false).html('<i class="fas fa-magic"></i> Generate Positions (Auto)');
+					}
+				},
+				error: function() {
+					alertMsg('An error occurred. Please try again.');
+					$btn.prop('disabled', false).html('<i class="fas fa-magic"></i> Generate Positions (Auto)');
+				}
+			});
 		});
 	});
 </script>

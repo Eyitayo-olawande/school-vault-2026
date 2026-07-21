@@ -77,9 +77,13 @@ class Exam_model extends CI_Model
     public function termSave($post)
     {
         $arrayTerm = array(
-            'name' => $post['term_name'],
-            'branch_id' => $this->application_model->get_branch_id(),
-            'session_id' => get_session_id(),
+            'name'            => $post['term_name'],
+            'branch_id'       => $this->application_model->get_branch_id(),
+            'session_id'      => get_session_id(),
+            'term_start_date' => !empty($post['term_start_date']) ? $post['term_start_date'] : null,
+            'term_end_date'   => !empty($post['term_end_date'])   ? $post['term_end_date']   : null,
+            'resumption_date' => !empty($post['resumption_date']) ? $post['resumption_date'] : null,
+            'next_term_info'  => !empty($post['next_term_info'])  ? $post['next_term_info']  : null,
         );
         if (!isset($post['term_id'])) {
             $this->db->insert('exam_term', $arrayTerm);
@@ -228,7 +232,136 @@ class Exam_model extends CI_Model
         $this->db->group_by('m.subject_id');
         $this->db->order_by('subject.id', 'ASC');
         $result['exam'] = $this->db->get()->result_array();
+
+        // Term info (term name, dates, resumption) for report card
+        $examRow = $this->db->select('term_id')->where('id', $examID)->get('exam')->row();
+        if ($examRow && $examRow->term_id) {
+            $result['term'] = $this->db->select('name as term_name, term_start_date, term_end_date, resumption_date, next_term_info')
+                ->where('id', $examRow->term_id)->get('exam_term')->row_array();
+        }
+        if (empty($result['term'])) {
+            $result['term'] = ['term_name' => '', 'term_start_date' => null, 'term_end_date' => null, 'resumption_date' => null, 'next_term_info' => null];
+        }
+
         return $result;
+    }
+
+    // Affective domain ratings for a student in an exam
+    public function getAffectiveRatings($enrollID, $examID, $branchID)
+    {
+        $this->db->select('adt.name, adt.sort_order, IFNULL(sa.rating, 0) as rating');
+        $this->db->from('affective_domain_type adt');
+        $this->db->join('student_affective sa', 'sa.domain_type_id = adt.id AND sa.enroll_id = ' . (int)$enrollID . ' AND sa.exam_id = ' . (int)$examID, 'left');
+        $this->db->where('adt.branch_id', $branchID);
+        $this->db->order_by('adt.sort_order', 'ASC');
+        return $this->db->get()->result_array();
+    }
+
+    // Psychomotor domain ratings for a student in an exam
+    public function getPsychomotorRatings($enrollID, $examID, $branchID)
+    {
+        $this->db->select('pdt.name, pdt.sort_order, IFNULL(sp.rating, 0) as rating');
+        $this->db->from('psychomotor_domain_type pdt');
+        $this->db->join('student_psychomotor sp', 'sp.domain_type_id = pdt.id AND sp.enroll_id = ' . (int)$enrollID . ' AND sp.exam_id = ' . (int)$examID, 'left');
+        $this->db->where('pdt.branch_id', $branchID);
+        $this->db->order_by('pdt.sort_order', 'ASC');
+        return $this->db->get()->result_array();
+    }
+
+    // All marks for a class/section/exam in one query (for position generation)
+    public function getAllMarksForClass($branchID, $classID, $sectionID, $examID, $sessionID)
+    {
+        $this->db->select('e.id as enroll_id, e.student_id, e.roll, CONCAT(s.first_name," ",s.last_name) as student_name, s.register_no, m.subject_id, m.mark, m.absent, te.mark_distribution');
+        $this->db->from('enroll e');
+        $this->db->join('student s', 's.id = e.student_id', 'inner');
+        $this->db->join('mark m', 'm.student_id = e.student_id AND m.class_id = ' . (int)$classID . ' AND m.section_id = ' . (int)$sectionID . ' AND m.exam_id = ' . (int)$examID . ' AND m.session_id = ' . (int)$sessionID, 'left');
+        $this->db->join('timetable_exam te', 'te.subject_id = m.subject_id AND te.exam_id = ' . (int)$examID . ' AND te.class_id = ' . (int)$classID . ' AND te.section_id = ' . (int)$sectionID . ' AND te.session_id = ' . (int)$sessionID, 'left');
+        $this->db->where('e.class_id', $classID);
+        $this->db->where('e.section_id', $sectionID);
+        $this->db->where('e.branch_id', $branchID);
+        $this->db->where('e.session_id', $sessionID);
+        $this->db->order_by('e.roll', 'ASC');
+        return $this->db->get()->result_array();
+    }
+
+    // Compute DENSE_RANK positions in PHP and persist to exam_rank and subject_rank
+    public function computeAndSavePositions($examID, $classID, $sectionID, $sessionID, $branchID)
+    {
+        $rows = $this->getAllMarksForClass($branchID, $classID, $sectionID, $examID, $sessionID);
+
+        // Aggregate: studentTotals[enroll_id] = totalMarks; subjectScores[subject_id][enroll_id] = score
+        $studentTotals  = [];
+        $subjectScores  = [];
+        $enrollMeta     = [];
+
+        foreach ($rows as $r) {
+            $enrollID = $r['enroll_id'];
+            if (!isset($studentTotals[$enrollID])) {
+                $studentTotals[$enrollID] = 0;
+                $enrollMeta[$enrollID]    = ['student_name' => $r['student_name'], 'register_no' => $r['register_no']];
+            }
+            if (!$r['subject_id'] || $r['absent'] === 'on') {
+                continue;
+            }
+            $markData  = json_decode($r['mark'], true) ?: [];
+            $distData  = json_decode($r['mark_distribution'], true) ?: [];
+            $obtained  = 0;
+            foreach ($distData as $i => $val) {
+                $obtained += isset($markData[$i]) ? (float)$markData[$i] : 0;
+            }
+            $studentTotals[$enrollID] += $obtained;
+            if (!isset($subjectScores[$r['subject_id']])) {
+                $subjectScores[$r['subject_id']] = [];
+            }
+            $subjectScores[$r['subject_id']][$enrollID] = $obtained;
+        }
+
+        $totalStudents = count($studentTotals);
+
+        // DENSE_RANK helper
+        $denseRank = function (array $scores) {
+            arsort($scores);
+            $rank = 1; $prev = null; $skip = 0; $result = [];
+            foreach ($scores as $id => $score) {
+                if ($prev !== null && $score < $prev) { $rank += $skip; $skip = 1; }
+                else { $skip++; }
+                $result[$id] = $rank;
+                $prev = $score;
+            }
+            return $result;
+        };
+
+        $overallRanks = $denseRank($studentTotals);
+
+        // Upsert exam_rank
+        foreach ($overallRanks as $enrollID => $rank) {
+            $q = $this->db->select('id')->where(['exam_id' => $examID, 'enroll_id' => $enrollID])->get('exam_rank');
+            $data = ['rank' => $rank, 'total_marks' => $studentTotals[$enrollID], 'total_students' => $totalStudents];
+            if ($q->num_rows() > 0) {
+                $this->db->where('id', $q->row()->id)->update('exam_rank', $data);
+            } else {
+                $this->db->insert('exam_rank', array_merge($data, ['exam_id' => $examID, 'enroll_id' => $enrollID]));
+            }
+        }
+
+        // Upsert subject_rank
+        foreach ($subjectScores as $subjectID => $scores) {
+            $subRanks = $denseRank($scores);
+            foreach ($subRanks as $enrollID => $rank) {
+                $q = $this->db->select('id')->where(['exam_id' => $examID, 'enroll_id' => $enrollID, 'subject_id' => $subjectID])->get('subject_rank');
+                $data = ['rank' => $rank, 'total_marks' => $scores[$enrollID], 'branch_id' => $branchID];
+                if ($q->num_rows() > 0) {
+                    $this->db->where('id', $q->row()->id)->update('subject_rank', $data);
+                } else {
+                    $this->db->insert('subject_rank', array_merge($data, ['exam_id' => $examID, 'enroll_id' => $enrollID, 'subject_id' => $subjectID]));
+                }
+            }
+        }
+
+        // Mark rank as generated
+        $this->db->where('id', $examID)->update('exam', ['rank_generated' => 1]);
+
+        return ['total_students' => $totalStudents, 'ranks' => $overallRanks];
     }
 
 }

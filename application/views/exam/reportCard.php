@@ -49,7 +49,7 @@ if (count($student_array)) {
 					<table align="right" class="table-head text-right" >
 						<tbody>
 							<tr><th style="font-size: 26px;" class="text-right"><?=$getSchool['school_name']?></th></tr>
-							<tr><th style="font-size: 14px; padding-top: 4px;" class="text-right">Academic Session : <?=$schoolYear?></th></tr>
+							<tr><th style="font-size: 14px; padding-top: 4px;" class="text-right">Academic Session : <?=$schoolYear?><?=!empty($result['term']['term_name']) ? ' &nbsp;|&nbsp; Term: ' . html_escape($result['term']['term_name']) : ''?></th></tr>
 							<tr><td><?=$getSchool['address']?></td></tr>
 							<tr><td><?=$getSchool['mobileno']?></td></tr>
 							<tr><td><?=$getSchool['email']?></td></tr>
@@ -236,13 +236,62 @@ if (count($student_array)) {
 			</tbody>
 		</table>
 		
+		<?php
+		$affRatings  = $this->exam_model->getAffectiveRatings($student['enrollID'], $examID, $getExam['branch_id']);
+		$psyRatings  = $this->exam_model->getPsychomotorRatings($student['enrollID'], $examID, $getExam['branch_id']);
+		$ratingLabel = [0 => '—', 1 => 'Poor', 2 => 'Fair', 3 => 'Good', 4 => 'Excellent'];
+		if (!empty($affRatings)): ?>
+		<table class="table table-condensed table-bordered mt-sm">
+			<thead>
+				<tr><th colspan="2" class="text-center">Affective Domain</th></tr>
+				<tr><th style="width:60%">Trait</th><th>Rating</th></tr>
+			</thead>
+			<tbody>
+				<?php foreach ($affRatings as $ar): ?>
+				<tr>
+					<td><?=html_escape($ar['name'])?></td>
+					<td><?=$ratingLabel[(int)$ar['rating']] ?? '—'?></td>
+				</tr>
+				<?php endforeach; ?>
+			</tbody>
+		</table>
+		<?php endif; ?>
+		<?php if (!empty($psyRatings)): ?>
+		<table class="table table-condensed table-bordered mt-sm">
+			<thead>
+				<tr><th colspan="2" class="text-center">Psychomotor Domain</th></tr>
+				<tr><th style="width:60%">Skill</th><th>Rating</th></tr>
+			</thead>
+			<tbody>
+				<?php foreach ($psyRatings as $pr): ?>
+				<tr>
+					<td><?=html_escape($pr['name'])?></td>
+					<td><?=$ratingLabel[(int)$pr['rating']] ?? '—'?></td>
+				</tr>
+				<?php endforeach; ?>
+			</tbody>
+		</table>
+		<?php endif; ?>
 		<div style="width: 100%; display: flex;">
 			<div style="width: 50%; padding-right: 15px;">
 				<?php
 				if ($attendance == true) {
-					$year = explode('-', $schoolYear);
-					$getTotalWorking = $this->db->where(array('enroll_id' => $student['enrollID'], 'year(date)' => $year[0]))->get('student_attendance')->num_rows();
-					$getTotalAttendance = $this->db->where(array('enroll_id' => $student['enrollID'], 'status' => 'P', 'year(date)' => $year[0]))->get('student_attendance')->num_rows();
+					$termInfo = $result['term'];
+					if (!empty($termInfo['term_start_date']) && !empty($termInfo['term_end_date'])) {
+						$this->db->where('enroll_id', $student['enrollID']);
+						$this->db->where('date >=', $termInfo['term_start_date']);
+						$this->db->where('date <=', $termInfo['term_end_date']);
+						$getTotalWorking = $this->db->get('student_attendance')->num_rows();
+						$this->db->where('enroll_id', $student['enrollID']);
+						$this->db->where('status', 'P');
+						$this->db->where('date >=', $termInfo['term_start_date']);
+						$this->db->where('date <=', $termInfo['term_end_date']);
+						$getTotalAttendance = $this->db->get('student_attendance')->num_rows();
+					} else {
+						$year = explode('-', $schoolYear);
+						$getTotalWorking = $this->db->where(array('enroll_id' => $student['enrollID'], 'year(date)' => $year[0]))->get('student_attendance')->num_rows();
+						$getTotalAttendance = $this->db->where(array('enroll_id' => $student['enrollID'], 'status' => 'P', 'year(date)' => $year[0]))->get('student_attendance')->num_rows();
+					}
 					$attenPercentage = empty($getTotalWorking) ? '0.00' : ($getTotalAttendance * 100) / $getTotalWorking;
 					?>
 				<table class="table table-bordered table-condensed">
@@ -315,6 +364,23 @@ if (count($student_array)) {
 			</table>
 		</div>
 	<?php } ?>
+		<?php if (!empty($result['term']['resumption_date']) || !empty($result['term']['next_term_info'])): ?>
+		<table class="table table-condensed table-bordered mt-sm" style="font-size:13px;">
+			<tbody>
+				<?php if (!empty($result['term']['resumption_date'])): ?>
+				<tr>
+					<th style="width:30%">Next Term Resumption Date</th>
+					<td><?=_d($result['term']['resumption_date'])?></td>
+				</tr>
+				<?php endif; if (!empty($result['term']['next_term_info'])): ?>
+				<tr>
+					<th>Next Term Information</th>
+					<td><?=html_escape($result['term']['next_term_info'])?></td>
+				</tr>
+				<?php endif; ?>
+			</tbody>
+		</table>
+		<?php endif; ?>
 		<table style="width:100%; outline:none; margin-top: 35px;">
 			<tbody>
 				<tr>

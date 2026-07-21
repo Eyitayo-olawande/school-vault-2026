@@ -137,6 +137,12 @@ $branch = $this->db->where('id',$branch_id)->get('branch')->row_array();
 							</thead>
 							<tbody>
 								<?php
+								// pre-fetch subject ranks for this exam into a 2-D lookup
+								$subjectRanks = [];
+								$_srRows = $this->db->where('exam_id', set_value('exam_id'))->where('branch_id', $branch_id)->get('subject_rank')->result_array();
+								foreach ($_srRows as $_sr) {
+									$subjectRanks[$_sr['enroll_id']][$_sr['subject_id']] = $_sr['rank'];
+								}
 								$count = 1;
 								$enrolls = $this->db->get_where('enroll', array(
 									'class_id' 		=> set_value('class_id'),
@@ -207,6 +213,7 @@ $branch = $this->db->where('id',$branch_id)->get('branch')->row_array();
 												$unset_subject++;
 											}
 											$subjectArray['result_status'] = $unset_subject;
+											$subjectArray['subject_id'] = $subject['subject_id'];
 											$subject_array_list[] = $subjectArray;
 										}
 										if ($unset_subject == 0) {
@@ -238,7 +245,11 @@ $branch = $this->db->where('id',$branch_id)->get('branch')->row_array();
 									<?php
 									if (!isset($subject['mark_empty']) || $subject['mark_empty'] !== true) {
 										if (!isset($subject['absent']) || $subject['absent'] !== true) {
-											echo ($subject['totalObtained'] . "/" . $subject['totalFullMark']);
+											echo $subject['totalObtained'] . "/" . $subject['totalFullMark'];
+											$_sRank = $subjectRanks[$row1['enrollID']][$subject['subject_id']] ?? null;
+											if ($_sRank !== null) {
+												echo ' <small class="text-muted">(#' . $_sRank . ')</small>';
+											}
 										} else {
 											echo translate('absent');
 										}
