@@ -12,6 +12,18 @@ class Qrcode_attendance extends Admin_Controller
         }
     }
 
+    public function camera_scan()
+    {
+        if (!get_permission('qr_code_student_attendance', 'is_add')) {
+            access_denied();
+        }
+        $this->data['branch_id'] = $this->application_model->get_branch_id();
+        $this->data['title']     = 'QR Attendance — Camera Scanner';
+        $this->data['sub_page']  = 'qrcode_attendance/camera_scan';
+        $this->data['main_menu'] = 'attendance';
+        $this->load->view('layout/index', $this->data);
+    }
+
     /** Generate and print QR code sheet for a class/section. */
     public function generate()
     {

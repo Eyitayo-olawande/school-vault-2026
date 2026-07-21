@@ -4,6 +4,16 @@
 	</a>
 	<ul class="nav nav-children">
 		<?php if(get_permission('qr_code_student_attendance', 'is_add')) { ?>
+		<li class="<?php if ($sub_page == 'qrcode_attendance/camera_scan') echo 'nav-active';?>">
+			<a href="<?=base_url('qrcode_attendance/camera_scan')?>">
+				<span><i class="fas fa-caret-right"></i>Camera Scanner</span>
+			</a>
+		</li>
+		<li class="<?php if ($sub_page == 'qrcode_attendance/generate') echo 'nav-active';?>">
+			<a href="<?=base_url('qrcode_attendance/generate')?>">
+				<span><i class="fas fa-caret-right"></i>Print QR Sheets</span>
+			</a>
+		</li>
 		<li class="<?php if ($sub_page == 'qrcode_attendance/student_entries') echo 'nav-active';?>">
 			<a href="<?=base_url('qrcode_attendance/student_entry')?>">
 				<span><i class="fas fa-caret-right"></i><?=translate('student')?></span>
