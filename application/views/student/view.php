@@ -56,6 +56,7 @@
 		<!-- Hidden form to bulk-print QR sheet for current class/section -->
 		<form id="qr_sheet_form" action="<?=base_url('qrcode_attendance/generate')?>" method="post" target="_blank" style="display:none;">
 			<input type="hidden" name="<?=$this->security->get_csrf_token_name()?>" value="<?=$this->security->get_csrf_hash()?>">
+			<input type="hidden" name="branch_id" value="<?=$branch_id?>">
 			<input type="hidden" name="class_id" value="<?=set_value('class_id')?>">
 			<input type="hidden" name="section_id" value="<?=set_value('section_id')?>">
 		</form>

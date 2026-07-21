@@ -31,7 +31,13 @@ class Qrcode_attendance extends Admin_Controller
             access_denied();
         }
 
-        $branchID = $this->application_model->get_branch_id();
+        // For superadmin, branch comes from POST (either the generate form or the
+        // hidden form on the student list). For non-superadmin, use session branch.
+        if (is_superadmin_loggedin()) {
+            $branchID = (int)$this->input->post('branch_id') ?: null;
+        } else {
+            $branchID = get_loggedin_branch_id();
+        }
         if ($_POST) {
             $classID   = (int)$this->input->post('class_id');
             $sectionID = (int)$this->input->post('section_id');
@@ -59,15 +65,15 @@ class Qrcode_attendance extends Admin_Controller
             show_404();
         }
 
-        // Verify token belongs to a student in this branch
-        $branchID = $this->application_model->get_branch_id();
-        $ok = $this->db->select('s.id')
+        // Verify token belongs to a student (superadmin sees all branches)
+        $q = $this->db->select('s.id')
             ->from('student s')
             ->join('enroll e', 'e.student_id = s.id')
-            ->where('s.qr_token', $token)
-            ->where('e.branch_id', $branchID)
-            ->get()->num_rows();
-        if (!$ok) {
+            ->where('s.qr_token', $token);
+        if (!is_superadmin_loggedin()) {
+            $q->where('e.branch_id', get_loggedin_branch_id());
+        }
+        if (!$q->get()->num_rows()) {
             show_404();
         }
 
@@ -296,16 +302,17 @@ class Qrcode_attendance extends Admin_Controller
     /** Generate or fetch QR tokens for all students in a class. */
     private function _get_or_generate_tokens($classID, $sectionID, $branchID)
     {
-        $rows = $this->db
+        $q = $this->db
             ->select('s.id as student_id, s.first_name, s.last_name, s.register_no, s.qr_token, e.roll, e.id as enroll_id')
             ->from('enroll e')
             ->join('student s', 's.id = e.student_id')
             ->where('e.class_id',   $classID)
             ->where('e.section_id', $sectionID)
-            ->where('e.branch_id',  $branchID)
-            ->where('e.session_id', get_session_id())
-            ->order_by('e.roll')
-            ->get()->result_array();
+            ->where('e.session_id', get_session_id());
+        if ($branchID) {
+            $q->where('e.branch_id', $branchID);
+        }
+        $rows = $q->order_by('e.roll')->get()->result_array();
 
         foreach ($rows as &$row) {
             if (empty($row['qr_token'])) {
