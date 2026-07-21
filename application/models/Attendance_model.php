@@ -287,4 +287,56 @@ class Attendance_model extends MY_Model
             'days'     => $days,
         ];
     }
+
+    public function getDashboardStats($branchID, $date)
+    {
+        $sql = "SELECT
+            COUNT(e.id) as total_students,
+            SUM(CASE WHEN sa.status = 'P'  THEN 1 ELSE 0 END) as present,
+            SUM(CASE WHEN sa.status = 'A'  THEN 1 ELSE 0 END) as absent,
+            SUM(CASE WHEN sa.status = 'L'  THEN 1 ELSE 0 END) as late,
+            SUM(CASE WHEN sa.status = 'EA' THEN 1 ELSE 0 END) as excused
+            FROM enroll e
+            LEFT JOIN student_attendance sa ON sa.enroll_id = e.id AND sa.date = ?
+            WHERE e.branch_id = ?";
+        return $this->db->query($sql, [$date, $branchID])->row_array();
+    }
+
+    public function getDashboardClassCards($branchID, $date)
+    {
+        $sql = "SELECT
+            c.id as class_id, c.name as class_name,
+            s.id as section_id, s.name as section_name,
+            COUNT(e.id) as expected,
+            SUM(CASE WHEN sa.status = 'P'  THEN 1 ELSE 0 END) as arrived,
+            SUM(CASE WHEN sa.status = 'A'  THEN 1 ELSE 0 END) as absent,
+            SUM(CASE WHEN sa.status = 'L'  THEN 1 ELSE 0 END) as late,
+            SUM(CASE WHEN sa.status = 'EA' THEN 1 ELSE 0 END) as excused
+            FROM enroll e
+            JOIN `class` c ON c.id = e.class_id
+            JOIN section  s ON s.id = e.section_id
+            LEFT JOIN student_attendance sa ON sa.enroll_id = e.id AND sa.date = ? AND sa.period_id IS NULL
+            WHERE e.branch_id = ?
+            GROUP BY e.class_id, e.section_id
+            ORDER BY c.name, s.name";
+        return $this->db->query($sql, [$date, $branchID])->result_array();
+    }
+
+    public function getFireRegister($branchID, $date)
+    {
+        $sql = "SELECT
+            e.id as enroll_id, st.id as student_id,
+            CONCAT(st.first_name, ' ', st.last_name) as student_name,
+            st.register_no,
+            c.name as class_name, s.name as section_name,
+            IFNULL(sa.status, '') as att_status
+            FROM enroll e
+            JOIN student st ON st.id = e.student_id
+            JOIN `class` c  ON c.id  = e.class_id
+            JOIN section s  ON s.id  = e.section_id
+            LEFT JOIN student_attendance sa ON sa.enroll_id = e.id AND sa.date = ? AND sa.period_id IS NULL
+            WHERE e.branch_id = ?
+            ORDER BY c.name, s.name, st.first_name";
+        return $this->db->query($sql, [$date, $branchID])->result_array();
+    }
 }

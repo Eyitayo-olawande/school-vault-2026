@@ -464,6 +464,7 @@ $config['csrf_regenerate'] = FALSE;
 // instead of a second, parallel one.
 $config['csrf_exclude_uris'] = array(
     'paystack/webhook',
+    'pickup/verify_qr',
     'qrcode_attendance/scan(/.*)?',
     '(feespayment|admissionpayment|onlineexam_payment|subscription|saas_payment)/'
         . '(getsuccesspayment|stripe_success|verify_paystack_payment|payumoney_success|razorpay_verify|'

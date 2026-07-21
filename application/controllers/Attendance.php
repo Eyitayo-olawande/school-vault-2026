@@ -16,11 +16,104 @@ class Attendance extends Admin_Controller
 
     public function index()
     {
-        if (get_loggedin_id()) {
+        if (get_permission('student_attendance', 'is_add')) {
+            redirect(base_url('attendance/dashboard'), 'refresh');
+        } elseif (get_loggedin_id()) {
             redirect(base_url('dashboard'), 'refresh');
         } else {
             redirect(base_url(), 'refresh');
         }
+    }
+
+    public function dashboard()
+    {
+        if (!get_permission('student_attendance', 'is_add')) {
+            access_denied();
+        }
+        $branchID = $this->application_model->get_branch_id();
+        $date     = date('Y-m-d');
+        $this->data['stats']       = $this->attendance_model->getDashboardStats($branchID, $date);
+        $this->data['class_cards'] = $this->attendance_model->getDashboardClassCards($branchID, $date);
+        $this->data['today']       = $date;
+        $this->data['branch_id']   = $branchID;
+        $this->data['title']       = 'Attendance Management';
+        $this->data['sub_page']    = 'attendance/dashboard';
+        $this->data['main_menu']   = 'attendance';
+        $this->load->view('layout/index', $this->data);
+    }
+
+    public function bulk_action()
+    {
+        if (!get_permission('student_attendance', 'is_add')) {
+            access_denied();
+        }
+        $branchID = $this->application_model->get_branch_id();
+
+        if (isset($_POST['apply'])) {
+            $classID      = $this->input->post('class_id');
+            $sectionID    = $this->input->post('section_id');
+            $date         = $this->input->post('date');
+            $status       = $this->input->post('bulk_status');
+            $skipExisting = (bool)$this->input->post('skip_existing');
+            $remark       = $this->input->post('remark');
+            $actorID      = get_loggedin_id();
+
+            $students = $this->attendance_model->getStudentAttendence($classID, $sectionID, $date, $branchID);
+            $this->db->trans_start();
+            $count = 0;
+            foreach ($students as $st) {
+                if ($skipExisting && !empty($st['att_id'])) {
+                    continue;
+                }
+                if (empty($st['att_id'])) {
+                    $this->db->insert('student_attendance', [
+                        'enroll_id'  => $st['enroll_id'],
+                        'status'     => $status,
+                        'remark'     => $remark,
+                        'date'       => $date,
+                        'branch_id'  => $branchID,
+                        'created_by' => $actorID,
+                    ]);
+                } else {
+                    $this->db->where('id', $st['att_id'])->update('student_attendance', [
+                        'status'     => $status,
+                        'remark'     => $remark,
+                        'updated_by' => $actorID,
+                        'updated_at' => date('Y-m-d H:i:s'),
+                    ]);
+                }
+                $count++;
+            }
+            $this->db->trans_complete();
+            if ($this->db->trans_status() !== false) {
+                set_alert('success', "$count student(s) marked as {$status}.");
+            } else {
+                set_alert('error', translate('something_went_wrong_please_try_again'));
+            }
+            redirect(current_url());
+        }
+
+        $this->data['branch_id'] = $branchID;
+        $this->data['title']     = 'Bulk Attendance';
+        $this->data['sub_page']  = 'attendance/bulk_action';
+        $this->data['main_menu'] = 'attendance';
+        $this->load->view('layout/index', $this->data);
+    }
+
+    public function fire_register()
+    {
+        if (!get_permission('student_attendance', 'is_add')) {
+            access_denied();
+        }
+        $branchID = $this->application_model->get_branch_id();
+        $date     = date('Y-m-d');
+        $this->data['students']  = $this->attendance_model->getFireRegister($branchID, $date);
+        $this->data['today']     = $date;
+        $this->data['branch_id'] = $branchID;
+        $this->data['title']     = 'Fire Register';
+        $this->data['sub_page']  = 'attendance/fire_register';
+        $this->data['main_menu'] = 'attendance';
+        $this->load->view('layout/index', $this->data);
     }
 
     public function student_entry()

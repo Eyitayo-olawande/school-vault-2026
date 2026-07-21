@@ -1144,8 +1144,13 @@
                             <i class="icons icon-chart"></i><span><?=translate('attendance')?></span>
                         </a>
                         <ul class="nav nav-children">
-                            <?php if(get_permission('student_attendance', 'is_add')) { 
-                                $getAttendanceType = $this->app_lib->getAttendanceType();
+                            <?php if(get_permission('student_attendance', 'is_add')) { ?>
+                            <li class="<?php if ($sub_page == 'attendance/dashboard') echo 'nav-active';?>">
+                                <a href="<?=base_url('attendance/dashboard')?>">
+                                    <span><i class="fas fa-caret-right"></i>Dashboard</span>
+                                </a>
+                            </li>
+                            <?php $getAttendanceType = $this->app_lib->getAttendanceType();
                                 if ($getAttendanceType == 2 || $getAttendanceType == 0) {
                                 ?>
                             <li class="<?php if ($sub_page == 'attendance/student_entries') echo 'nav-active';?>">
@@ -1159,7 +1164,18 @@
                                     <span><i class="fas fa-caret-right"></i><?=translate('subject_wise')?></span>
                                 </a>
                             </li>
-                            <?php } } if(get_permission('employee_attendance', 'is_add')) { ?>
+                            <?php } ?>
+                            <li class="<?php if ($sub_page == 'attendance/bulk_action') echo 'nav-active';?>">
+                                <a href="<?=base_url('attendance/bulk_action')?>">
+                                    <span><i class="fas fa-caret-right"></i>Bulk Actions</span>
+                                </a>
+                            </li>
+                            <li class="<?php if ($sub_page == 'attendance/fire_register') echo 'nav-active';?>">
+                                <a href="<?=base_url('attendance/fire_register')?>">
+                                    <span><i class="fas fa-caret-right"></i>Fire Register</span>
+                                </a>
+                            </li>
+                            <?php } if(get_permission('employee_attendance', 'is_add')) { ?>
                             <li class="<?php if ($sub_page == 'attendance/employees_entries') echo 'nav-active';?>">
                                 <a href="<?=base_url('attendance/employees_entry')?>">
                                     <span><i class="fas fa-caret-right"></i><?=translate('employee')?></span>
@@ -1175,6 +1191,24 @@
                         </ul>
                     </li>
                     <?php } } ?>
+                    <?php if (get_permission('student_attendance', 'is_add')): ?>
+                    <li class="nav-parent <?php if (in_array($sub_page, ['pickup/index','pickup/scan','pickup/records'])) echo 'nav-expanded nav-active';?>">
+                        <a>
+                            <i class="fas fa-child"></i><span>Authorized Pickups</span>
+                        </a>
+                        <ul class="nav nav-children">
+                            <li class="<?php if ($sub_page == 'pickup/index') echo 'nav-active';?>">
+                                <a href="<?=base_url('pickup')?>"><span><i class="fas fa-caret-right"></i>Authorized Persons</span></a>
+                            </li>
+                            <li class="<?php if ($sub_page == 'pickup/scan') echo 'nav-active';?>">
+                                <a href="<?=base_url('pickup/scan')?>"><span><i class="fas fa-caret-right"></i>QR Scanner</span></a>
+                            </li>
+                            <li class="<?php if ($sub_page == 'pickup/records') echo 'nav-active';?>">
+                                <a href="<?=base_url('pickup/records')?>"><span><i class="fas fa-caret-right"></i>Pickup Records</span></a>
+                            </li>
+                        </ul>
+                    </li>
+                    <?php endif; ?>
                     <?php if ($this->app_lib->isExistingAddon('qrcode') && moduleIsEnabled('qr_code_attendance')) { 
                         if(get_permission('qr_code_student_attendance', 'is_add') ||
                             get_permission('qr_code_employee_attendance', 'is_add') ||
