@@ -539,8 +539,11 @@ class Sendsmsmail extends Admin_Controller
     public function getSmsTemplateText()
     {
         $id = $this->input->post('id');
-        $row = $this->db->where(array('id' => $id))->get('bulk_msg_category')->row_array();
-        echo $row['body'];
+        if (!is_superadmin_loggedin()) {
+            $this->db->where('branch_id', get_loggedin_branch_id());
+        }
+        $row = $this->db->where('id', $id)->get('bulk_msg_category')->row_array();
+        echo $row['body'] ?? '';
     }
 
     public function getDetails()

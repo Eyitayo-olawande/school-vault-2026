@@ -113,7 +113,13 @@ $selTerm   = set_value('term', '');
 							$dr = explode(' - ', set_value('daterange', date('Y/m/d').' - '.date('Y/m/d')));
 							$s = date('Y-m-d', strtotime($dr[0]));
 							$e = date('Y-m-d', strtotime($dr[1] ?? $dr[0]));
-							echo base_url('fees/export_payment_history_csv?class_id='.set_value('class_id').'&payment_via='.set_value('payment_via').'&start='.$s.'&end='.$e);
+							echo base_url('fees/export_payment_history_csv?'
+								. 'class_id=' . urlencode(set_value('class_id'))
+								. '&section_id=' . urlencode(set_value('section_id'))
+								. '&payment_via=' . urlencode(set_value('payment_via'))
+								. '&term=' . urlencode(set_value('term'))
+								. '&session_id=' . urlencode(set_value('session_id', $active_session))
+								. '&start=' . $s . '&end=' . $e);
 						?>" class="btn btn-xs btn-default btn-circle">
 							<i class="fas fa-file-csv"></i> CSV Export
 						</a>
@@ -127,6 +133,7 @@ $selTerm   = set_value('term', '');
 						<thead>
 							<tr>
 								<th><?=translate('sl')?></th>
+								<th>Receipt #</th>
 								<th><?=translate('student')?></th>
 								<th><?=translate('register_no')?></th>
 								<th><?=translate('roll')?></th>
@@ -149,6 +156,7 @@ $selTerm   = set_value('term', '');
 								?>
 							<tr>
 								<td><?php echo $count++; ?></td>
+								<td><small class="text-muted">#<?=htmlspecialchars($row['receipt_no'])?></small></td>
 								<td><?php echo $row['first_name'] . ' ' . $row['last_name'];?></td>
 								<td><?php echo $row['register_no'];?></td>
 								<td><?php echo $row['roll'];?></td>
@@ -168,12 +176,13 @@ $selTerm   = set_value('term', '');
 								<td><?php echo currencyFormat($row['discount']);?></td>
 								<td><?php echo currencyFormat($row['fine']);?></td>
 								<td><?php echo currencyFormat($totalp);?></td>
-						
+
 							</tr>
 							<?php endforeach; ?>
 						</tbody>
 						<tfoot>
 							<tr>
+								<th></th>
 								<th></th>
 								<th></th>
 								<th></th>

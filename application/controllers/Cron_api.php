@@ -46,7 +46,7 @@ class Cron_api extends MY_Controller
 
     public function send_smsemail_command($api_key = '')
     {
-        if ($api_key != "" && $this->api_key != $api_key) {
+        if (empty($api_key) || $this->api_key !== $api_key) {
             echo "API Key is required or API Key does not match.";
             exit();
         }
@@ -75,7 +75,7 @@ class Cron_api extends MY_Controller
 
     public function homework_command($api_key = '')
     {
-        if ($api_key != "" && $this->api_key != $api_key) {
+        if (empty($api_key) || $this->api_key !== $api_key) {
             echo "API Key is required or API Key does not match.";
             exit();
         }
@@ -99,7 +99,7 @@ class Cron_api extends MY_Controller
 
     public function fees_reminder_command($api_key = '')
     {
-        if ($api_key != "" && $this->api_key != $api_key) {
+        if (empty($api_key) || $this->api_key !== $api_key) {
             echo "API Key is required or API Key does not match.";
             exit();
         }
@@ -141,7 +141,7 @@ class Cron_api extends MY_Controller
      */
     public function dva_resumption_reminder_command($api_key = '')
     {
-        if ($api_key != "" && $this->api_key != $api_key) {
+        if (empty($api_key) || $this->api_key !== $api_key) {
             echo "API Key is required or API Key does not match.";
             exit();
         }
@@ -204,7 +204,7 @@ class Cron_api extends MY_Controller
      */
     public function dva_exam_reminder_command($api_key = '')
     {
-        if ($api_key != "" && $this->api_key != $api_key) {
+        if (empty($api_key) || $this->api_key !== $api_key) {
             echo "API Key is required or API Key does not match.";
             exit();
         }

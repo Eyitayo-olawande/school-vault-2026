@@ -198,6 +198,18 @@ class Offline_payments extends Admin_Controller
                 'approve_date' => date('Y-m-d H:i:s'),
             );
             $id = $this->input->post('id');
+            if (!is_superadmin_loggedin()) {
+                $owned = $this->db->select('op.id')
+                    ->from('offline_fees_payments as op')
+                    ->join('enroll as e', 'e.id = op.student_enroll_id', 'inner')
+                    ->where('op.id', $id)
+                    ->where('e.branch_id', get_loggedin_branch_id())
+                    ->count_all_results();
+                if (!$owned) {
+                    access_denied();
+                    return;
+                }
+            }
             $this->db->where('id', $id);
             $this->db->update('offline_fees_payments', $arrayLeave);
             if ($status == 2) {

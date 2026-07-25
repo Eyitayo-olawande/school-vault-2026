@@ -21,7 +21,7 @@ class Sms_model extends CI_Model
         $this->load->library("smartsms");
     }
 
-    // common function for sending sms
+    // common function for sending sms (and WhatsApp when notify_whatsapp is set on the template)
     public function send_sms($data = '', $id = '')
     {
         $branchID = $this->application_model->get_branch_id();
@@ -39,6 +39,10 @@ class Sms_model extends CI_Model
             if ($id == 2) {
                 $text = str_replace('{paid_amount}', $data['amount'], $text);
                 $text = str_replace('{paid_date}', _d($data['paid_date']), $text);
+                // Extra placeholders for richer WhatsApp receipts
+                $text = str_replace('{receipt_no}', $data['receipt_no'] ?? '', $text);
+                $text = str_replace('{balance}',    $data['balance']    ?? '', $text);
+                $text = str_replace('{fee_type}',   $data['fee_type']   ?? '', $text);
             }
 
             if ($id == 4 || $id == 5) {
@@ -55,9 +59,14 @@ class Sms_model extends CI_Model
                 }
             }
 
+            $waEnabled = !empty($template['notify_whatsapp']);
+
             if ($template['notify_student'] == 1) {
                 if (!empty($student['mobileno'])) {
                     $this->_send($sms_api, $student['mobileno'], $text, $template['dlt_template_id']);
+                    if ($waEnabled) {
+                        $this->_sendWhatsApp($sms_api, $student['mobileno'], $text);
+                    }
                 }
             }
 
@@ -66,6 +75,9 @@ class Sms_model extends CI_Model
                     $parent = $this->db->select('mobileno')->where('id', $student['parent_id'])->get('parent')->row_array();
                     if (!empty($parent['mobileno'])) {
                         $this->_send($sms_api, $parent['mobileno'], $text, $template['dlt_template_id']);
+                        if ($waEnabled) {
+                            $this->_sendWhatsApp($sms_api, $parent['mobileno'], $text);
+                        }
                     }
                 }
             }
@@ -96,14 +108,21 @@ class Sms_model extends CI_Model
             $text = str_replace('{due_date}', $stuData['due_date'], $text);
             $text = str_replace('{due_amount}', $stuData['balance_amount'], $text);
             $text = str_replace('{fee_type}', $stuData['type_name'], $text);
+            $waEnabled = !empty($remData['notify_whatsapp']);
             if ($remData['student'] == 1) {
                 if (!empty($stuData['child_mobileno'])) {
                     $this->_send($sms_api, $stuData['child_mobileno'], $text, $remData['dlt_template_id']);
+                    if ($waEnabled) {
+                        $this->_sendWhatsApp($sms_api, $stuData['child_mobileno'], $text);
+                    }
                 }
             }
             if ($remData['guardian'] == 1) {
                 if (!empty($stuData['guardian_mobileno'])) {
                     $this->_send($sms_api, $stuData['guardian_mobileno'], $text, $remData['dlt_template_id']);
+                    if ($waEnabled) {
+                        $this->_sendWhatsApp($sms_api, $stuData['guardian_mobileno'], $text);
+                    }
                 }
             }
         }

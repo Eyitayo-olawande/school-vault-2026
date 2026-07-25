@@ -1541,11 +1541,17 @@
                                     <li class="<?php if ($sub_page == 'fees/session_outstanding_report') echo 'nav-active';?>">
                                         <a href="<?=base_url('fees/session_outstanding_report')?>">Outstanding Balances</a>
                                     </li>
-                                    <li class="<?php if ($sub_page == 'fees/dva_transaction_history') echo 'nav-active';?>">
-                                        <a href="<?=base_url('fees/dva_transaction_history')?>">DVA Transaction Hist.</a>
+                                    <li class="<?php if ($sub_page == 'fees/classwise_fees_summary') echo 'nav-active';?>">
+                                        <a href="<?=base_url('fees/classwise_fees_summary')?>">Class-wise Summary</a>
                                     </li>
-                                    <li class="<?php if ($sub_page == 'fees/dva_sync') echo 'nav-active';?>">
-                                        <a href="<?=base_url('fees/dva_sync')?>">DVA Account Sync</a>
+                                    <li class="<?php if ($sub_page == 'fees/branch_fees_report') echo 'nav-active';?>">
+                                        <a href="<?=base_url('fees/branch_fees_report')?>">Branch Fees Report</a>
+                                    </li>
+                                    <li class="<?php if ($sub_page == 'fees/discount_register') echo 'nav-active';?>">
+                                        <a href="<?=base_url('fees/discount_register')?>">Discount Register</a>
+                                    </li>
+                                    <li class="<?php if ($sub_page == 'fees/cashflow_report') echo 'nav-active';?>">
+                                        <a href="<?=base_url('fees/cashflow_report')?>">Cashflow Report</a>
                                     </li>
                                     <li class="<?php if ($sub_page == 'fees/financial_overview') echo 'nav-active';?>">
                                         <a href="<?=base_url('fees/financial_overview')?>">Financial Overview</a>
@@ -1559,8 +1565,23 @@
                                     <li class="<?php if ($sub_page == 'fees/wallet_reconciliation') echo 'nav-active';?>">
                                         <a href="<?=base_url('fees/wallet_reconciliation')?>">Wallet Reconciliation</a>
                                     </li>
+                                    <li class="<?php if ($sub_page == 'fees/dva_transaction_history') echo 'nav-active';?>">
+                                        <a href="<?=base_url('fees/dva_transaction_history')?>">DVA Transaction Hist.</a>
+                                    </li>
                                     <li class="<?php if ($sub_page == 'fees/dva_term_payment_report') echo 'nav-active';?>">
                                         <a href="<?=base_url('fees/dva_term_payment_report')?>">DVA Term Payment Report</a>
+                                    </li>
+                                </ul>
+                            </li>
+                        <?php }} ?>
+                        <?php
+                        if (moduleIsEnabled('student_accounting')) {
+                            if(get_permission('fees_reports', 'is_view')) { ?>
+                            <li class="nav-parent <?php if ($main_menu == 'dva_operations') echo 'nav-expanded nav-active'; ?>">
+                                <a><i class="fas fa-sync-alt"></i><span>DVA Operations</span></a>
+                                <ul class="nav nav-children">
+                                    <li class="<?php if ($sub_page == 'fees/dva_sync') echo 'nav-active';?>">
+                                        <a href="<?=base_url('fees/dva_sync')?>">DVA Account Sync</a>
                                     </li>
                                 </ul>
                             </li>

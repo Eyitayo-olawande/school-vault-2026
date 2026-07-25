@@ -169,6 +169,7 @@ class Attendance extends Admin_Controller
                     $this->db->insert('student_attendance', $arrayAttendance);
                 } else {
                     $this->db->where('id', $value['attendance_id']);
+                    $this->db->where('branch_id', $branchID);
                     $this->db->update('student_attendance', [
                         'status'     => $attStatus,
                         'remark'     => $value['remark'],
@@ -274,6 +275,7 @@ class Attendance extends Admin_Controller
                     $this->db->insert('staff_attendance', $arrayAttendance);
                 } else {
                     $this->db->where('id', $value['attendance_id']);
+                    $this->db->where('branch_id', $branchID);
                     $this->db->update('staff_attendance', [
                         'status'     => $attStatus,
                         'remark'     => $value['remark'],
@@ -349,6 +351,7 @@ class Attendance extends Admin_Controller
                     $this->db->insert('exam_attendance', $arrayAttendance);
                 } else {
                     $this->db->where('id', $value['attendance_id']);
+                    $this->db->where('branch_id', $branchID);
                     $this->db->update('exam_attendance', [
                         'status'     => $attStatus,
                         'remark'     => $value['remark'],

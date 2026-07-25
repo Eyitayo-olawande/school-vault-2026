@@ -97,7 +97,12 @@ $selTerm   = set_value('term', '');
 			<header class="panel-heading">
 				<h4 class="panel-title"><i class="fas fa-list-ol"></i> <?=translate('due_fees_report');?>
 					<div class="panel-btn">
-						<a href="<?=base_url('fees/export_due_report_csv?class_id='.set_value('class_id').'&section_id='.set_value('section_id').'&due_before='.set_value('due_before'))?>"
+						<a href="<?=base_url('fees/export_due_report_csv?'
+							. 'class_id='   . urlencode(set_value('class_id'))
+							. '&section_id=' . urlencode(set_value('section_id'))
+							. '&term='       . urlencode(set_value('term'))
+							. '&session_id=' . urlencode(set_value('session_id', $active_session))
+							. '&due_before=' . urlencode(set_value('due_before')))?>"
 							class="btn btn-xs btn-default btn-circle">
 							<i class="fas fa-file-csv"></i> CSV Export
 						</a>
@@ -108,8 +113,16 @@ $selTerm   = set_value('term', '');
 				<div class="mb-md mt-md">
 					<div class="export_title"><?=translate('due_fees_report')?></div>
 					<table class="table table-bordered table-condensed table-hover mb-none tbr-top table-export">
+						<div class="mb-sm">
+							<button type="button" id="send-reminders-btn" class="btn btn-sm btn-warning" disabled>
+								<i class="fas fa-sms"></i> Send Reminders (<span id="reminder-count">0</span>)
+							</button>
+						</div>
 						<thead>
 							<tr>
+								<th class="no-sort no-export">
+									<input type="checkbox" id="select-all-due" title="Select all">
+								</th>
 								<th><?=translate('sl')?></th>
 								<th><?=translate('student')?></th>
 								<th><?=translate('register_no')?></th>
@@ -120,6 +133,7 @@ $selTerm   = set_value('term', '');
 								<th><?=translate('total_discount')?></th>
 								<th><?=translate('total_fine')?></th>
 								<th><?=translate('total_balance')?></th>
+								<th>Days Overdue</th>
 								<th class="no-sort no-export"><?=translate('action')?></th>
 							</tr>
 						</thead>
@@ -131,20 +145,32 @@ $selTerm   = set_value('term', '');
 							$totaldiscount = 0;
 							$totalfine = 0;
 							$totalbalance = 0;
+							$today = new DateTime('today');
 							foreach($invoicelist as $row):
 								$paid = $row['payment']['total_paid'] + $row['payment']['total_discount'];
 								if ((float)$row['total_fees'] <= (float)$paid) {
-
 								} else {
 									$totalfees += $row['total_fees'];
 									$totalpaid += $row['payment']['total_paid'];
 									$totaldiscount += $row['payment']['total_discount'];
 									$totalfine += $row['payment']['total_fine'];
 									$totalbalance += ($row['total_fees'] - $paid);
+									$dueDays = '';
+									if (!empty($row['due_date'])) {
+										$dueDate = new DateTime($row['due_date']);
+										$days = (int)$dueDate->diff($today)->format('%R%a');
+										if ($days > 0) {
+											$ac = $days > 90 ? 'text-danger' : ($days > 60 ? 'text-warning' : 'text-muted');
+											$dueDays = '<span class="' . $ac . '">' . $days . 'd</span>';
+										}
+									}
 								?>
 							<tr>
+								<td class="no-export">
+									<input type="checkbox" class="due-cb" value="<?=$row['student_id']?>">
+								</td>
 								<td><?php echo $count++; ?></td>
-								<td><?php echo $row['first_name'] . ' ' . $row['last_name'];?></td>
+								<td><?php echo htmlspecialchars($row['first_name'] . ' ' . $row['last_name']);?></td>
 								<td><?php echo $row['register_no'];?></td>
 								<td><?php echo $row['roll'];?></td>
 								<td><?php echo $row['mobileno'];?></td>
@@ -153,6 +179,7 @@ $selTerm   = set_value('term', '');
 								<td><?php echo currencyFormat($row['payment']['total_discount']);?></td>
 								<td><?php echo currencyFormat($row['payment']['total_fine']);?></td>
 								<td><?php echo currencyFormat($row['total_fees'] - $paid);?></td>
+								<td><?=$dueDays ?: '<span class="text-muted">—</span>'?></td>
 								<td>
 									<a href="<?=base_url('fees/student_ledger/' . $row['student_id'])?>"
 										class="btn btn-xs btn-default btn-circle" target="_blank">
@@ -169,11 +196,13 @@ $selTerm   = set_value('term', '');
 								<th></th>
 								<th></th>
 								<th></th>
+								<th></th>
 								<th><?php echo currencyFormat($totalfees); ?></th>
 								<th><?php echo currencyFormat($totalpaid); ?></th>
 								<th><?php echo currencyFormat($totaldiscount); ?></th>
 								<th><?php echo currencyFormat($totalfine); ?></th>
 								<th><?php echo currencyFormat($totalbalance); ?></th>
+								<th></th>
 								<th></th>
 							</tr>
 						</tfoot>
@@ -185,3 +214,38 @@ $selTerm   = set_value('term', '');
 <?php endif; ?>
 	</div>
 </div>
+<?php if (isset($invoicelist)): ?>
+<script>
+$(document).ready(function() {
+	var $btn = $('#send-reminders-btn');
+	var $count = $('#reminder-count');
+
+	$(document).on('change', '.due-cb, #select-all-due', function() {
+		if ($(this).attr('id') === 'select-all-due') {
+			$('.due-cb').prop('checked', this.checked);
+		}
+		var n = $('.due-cb:checked').length;
+		$count.text(n);
+		$btn.prop('disabled', n === 0);
+	});
+
+	$btn.on('click', function() {
+		var ids = [];
+		$('.due-cb:checked').each(function() { ids.push($(this).val()); });
+		if (!ids.length) return;
+		if (!confirm('Send fee payment reminders to ' + ids.length + ' student(s)?')) return;
+		$btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Sending...');
+		$.post(base_url + 'fees/send_fee_reminders', {
+			student_ids: ids,
+			<?=$this->security->get_csrf_token_name()?>: '<?=$this->security->get_csrf_hash()?>'
+		}, function(r) {
+			alert(r.message || 'Done');
+			$btn.html('<i class="fas fa-sms"></i> Send Reminders (<span id="reminder-count">' + ids.length + '</span>)').prop('disabled', true);
+		}, 'json').fail(function() {
+			alert('Request failed. Please try again.');
+			$btn.prop('disabled', false);
+		});
+	});
+});
+</script>
+<?php endif; ?>

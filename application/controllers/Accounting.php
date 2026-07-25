@@ -389,7 +389,14 @@ class Accounting extends Admin_Controller
     // delete into voucher table by voucher id
     public function voucher_delete($id)
     {
+        if (!is_superadmin_loggedin()) {
+            $this->db->where('branch_id', get_loggedin_branch_id());
+        }
         $q = $this->db->where('id', $id)->get('transactions')->row_array();
+        if (empty($q)) {
+            access_denied();
+            return;
+        }
         if ($q['type'] == 'expense') {
             if (!get_permission('expense', 'is_delete')) {
                 access_denied();

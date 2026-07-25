@@ -427,7 +427,17 @@ class Exam extends Admin_Controller
             }
             if ($this->form_validation->run() !== false) {
                 $inputMarks = $this->input->post('mark');
+                $validStudents = $this->db->select('s.id')
+                    ->from('enroll as e')
+                    ->join('student as s', 's.id = e.student_id', 'inner')
+                    ->where(['e.class_id' => $classID, 'e.section_id' => $sectionID,
+                             'e.branch_id' => $branchID, 'e.session_id' => get_session_id()])
+                    ->get()->result_array();
+                $validStudentIDs = array_map('intval', array_column($validStudents, 'id'));
                 foreach ($inputMarks as $key => $value) {
+                    if (!in_array((int)$value['student_id'], $validStudentIDs, true)) {
+                        continue;
+                    }
                     $assMark = array();
                     foreach ($value['assessment'] as $i => $row) {
                         $assMark[$i] = $row;
@@ -842,7 +852,7 @@ class Exam extends Admin_Controller
             foreach ($ratings as $enrollID => $domains) {
                 foreach ($domains as $domainTypeID => $rating) {
                     $rating = max(0, min(4, (int) $rating));
-                    $exists = $this->db->get_where('student_affective', ['enroll_id' => $enrollID, 'exam_id' => $examID, 'domain_type_id' => $domainTypeID])->row();
+                    $exists = $this->db->get_where('student_affective', ['enroll_id' => $enrollID, 'exam_id' => $examID, 'domain_type_id' => $domainTypeID, 'branch_id' => $branchID])->row();
                     if ($exists) {
                         $this->db->where('id', $exists->id)->update('student_affective', ['rating' => $rating]);
                     } else {
@@ -903,7 +913,7 @@ class Exam extends Admin_Controller
             foreach ($ratings as $enrollID => $domains) {
                 foreach ($domains as $domainTypeID => $rating) {
                     $rating = max(0, min(4, (int) $rating));
-                    $exists = $this->db->get_where('student_psychomotor', ['enroll_id' => $enrollID, 'exam_id' => $examID, 'domain_type_id' => $domainTypeID])->row();
+                    $exists = $this->db->get_where('student_psychomotor', ['enroll_id' => $enrollID, 'exam_id' => $examID, 'domain_type_id' => $domainTypeID, 'branch_id' => $branchID])->row();
                     if ($exists) {
                         $this->db->where('id', $exists->id)->update('student_psychomotor', ['rating' => $rating]);
                     } else {

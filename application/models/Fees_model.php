@@ -412,7 +412,7 @@ class Fees_model extends MY_Model
 
     public function getDueReport($class_id = '', $section_id = '', $term = '')
     {
-        $this->db->select('fa.id as allocation_id,sum(gd.amount + fa.prev_due) as total_fees,e.id as enroll_id,e.roll,s.first_name,s.last_name,s.register_no,s.mobileno,c.name as class_name,se.name as section_name');
+        $this->db->select('fa.id as allocation_id,sum(gd.amount + fa.prev_due) as total_fees,MIN(gd.due_date) as due_date,e.id as enroll_id,e.student_id,e.roll,s.first_name,s.last_name,s.register_no,s.mobileno,c.name as class_name,se.name as section_name');
         $this->db->from('fee_allocation as fa');
         $this->db->join('fee_groups_details as gd', 'gd.fee_groups_id = fa.group_id', 'left');
         // JOIN on student_id only — no session_id condition so promoted students are not silently dropped.
@@ -449,10 +449,10 @@ class Fees_model extends MY_Model
         return $this->db->get()->row_array();
     }
 
-    public function getStuPaymentHistory($classID = '', $SectionID = '', $paymentVia = '', $start = '', $end = '', $branchID = '', $onlyFine = false, $sessionID = null)
+    public function getStuPaymentHistory($classID = '', $SectionID = '', $paymentVia = '', $start = '', $end = '', $branchID = '', $onlyFine = false, $sessionID = null, $term = '')
     {
         $sessionID = $sessionID ?: get_session_id();
-        $this->db->select('h.*,ft.name as type_name,e.student_id,e.roll,s.first_name,s.last_name,s.register_no,s.mobileno,c.name as class_name,se.name as section_name,pt.name as pay_via');
+        $this->db->select('h.id as receipt_no,h.*,ft.name as type_name,e.student_id,e.roll,s.first_name,s.last_name,s.register_no,s.mobileno,c.name as class_name,se.name as section_name,pt.name as pay_via');
         $this->db->from('fee_payment_history as h');
         $this->db->join('fee_allocation as fa', 'fa.id = h.allocation_id', 'inner');
         $this->db->join('fees_type as ft', 'ft.id = h.type_id', 'left');
@@ -474,6 +474,10 @@ class Fees_model extends MY_Model
         }
         if (!empty($SectionID)) {
             $this->db->where('e.section_id', $SectionID);
+        }
+        if (!empty($term)) {
+            $termEsc = $this->db->escape($term . '%');
+            $this->db->where("fa.group_id IN (SELECT id FROM fee_groups WHERE name LIKE {$termEsc})", null, false);
         }
         if ($paymentVia != 'all') {
             if ($paymentVia == 'online') {
@@ -1082,5 +1086,274 @@ class Fees_model extends MY_Model
         ";
 
         return $this->db->query($sql)->result_array();
+    }
+
+    public function getStudentFeesSummary($classID, $sectionID, $branchID, $sessionID, $term = '')
+    {
+        $sessionEsc = $this->db->escape((int) $sessionID);
+        $branchEsc  = $this->db->escape((int) $branchID);
+
+        $termWhere = '';
+        if (!empty($term)) {
+            $termEsc   = $this->db->escape($term . '%');
+            $termWhere = "AND fa.group_id IN (SELECT id FROM fee_groups WHERE name LIKE {$termEsc})";
+        }
+
+        $classWhere   = !empty($classID)   ? "AND e.class_id = "   . $this->db->escape((int) $classID)   : '';
+        $sectionWhere = !empty($sectionID) ? "AND e.section_id = " . $this->db->escape((int) $sectionID) : '';
+
+        $sql = "
+            SELECT
+                s.id                                               AS student_id,
+                s.first_name, s.last_name, s.register_no,
+                e.roll,
+                sec.name                                           AS section_name,
+                c.name                                             AS class_name,
+                SUM(IFNULL(fgd_sum.charged, 0) + IFNULL(fa.prev_due, 0)) AS expected,
+                IFNULL(SUM(fph_sum.paid), 0)                       AS net_paid,
+                SUM(IFNULL(fgd_sum.charged, 0) + IFNULL(fa.prev_due, 0))
+                    - IFNULL(SUM(fph_sum.paid), 0)                 AS balance
+            FROM fee_allocation fa
+            LEFT JOIN (
+                SELECT fee_groups_id, SUM(amount) AS charged
+                FROM   fee_groups_details
+                GROUP  BY fee_groups_id
+            ) fgd_sum ON fgd_sum.fee_groups_id = fa.group_id
+            LEFT JOIN (
+                SELECT allocation_id, SUM(amount + discount) AS paid
+                FROM   fee_payment_history
+                GROUP  BY allocation_id
+            ) fph_sum ON fph_sum.allocation_id = fa.id
+            INNER JOIN enroll   e   ON e.id   = fa.student_id
+            INNER JOIN student  s   ON s.id   = e.student_id
+            INNER JOIN class    c   ON c.id   = e.class_id
+            INNER JOIN section  sec ON sec.id = e.section_id
+            WHERE fa.session_id = {$sessionEsc}
+              AND e.branch_id   = {$branchEsc}
+              {$classWhere}
+              {$sectionWhere}
+              {$termWhere}
+            GROUP BY e.id
+            ORDER BY c.name, sec.name, e.roll
+        ";
+
+        return $this->db->query($sql)->result_array();
+    }
+
+    public function getClasswiseFeesSummary($sessionID, $branchID, $classID = '', $term = '')
+    {
+        $sessionEsc = $this->db->escape((int) $sessionID);
+        $branchEsc  = $this->db->escape((int) $branchID);
+
+        $termWhere  = '';
+        if (!empty($term)) {
+            $termEsc   = $this->db->escape($term . '%');
+            $termWhere = "AND fa.group_id IN (SELECT id FROM fee_groups WHERE name LIKE {$termEsc})";
+        }
+        $classWhere = !empty($classID) ? "AND e.class_id = " . $this->db->escape((int) $classID) : '';
+
+        $rows = $this->db->query("
+            SELECT
+                c.id   AS class_id,
+                c.name AS class_name,
+                stu.student_id,
+                stu.expected,
+                stu.collected
+            FROM (
+                SELECT
+                    fa.student_id,
+                    SUM(IFNULL(fgd.charged,0) + IFNULL(fa.prev_due,0)) AS expected,
+                    IFNULL(SUM(fph.paid),0)                             AS collected
+                FROM fee_allocation fa
+                LEFT JOIN (
+                    SELECT fee_groups_id, SUM(amount) AS charged
+                    FROM   fee_groups_details GROUP BY fee_groups_id
+                ) fgd ON fgd.fee_groups_id = fa.group_id
+                LEFT JOIN (
+                    SELECT allocation_id, SUM(amount+discount) AS paid
+                    FROM   fee_payment_history GROUP BY allocation_id
+                ) fph ON fph.allocation_id = fa.id
+                WHERE fa.session_id = {$sessionEsc}
+                  {$termWhere}
+                GROUP BY fa.student_id
+            ) stu
+            INNER JOIN enroll e ON e.id = stu.student_id
+            INNER JOIN class  c ON c.id = e.class_id
+            WHERE e.branch_id = {$branchEsc}
+              {$classWhere}
+            ORDER BY c.name
+        ")->result_array();
+
+        // Aggregate by class in PHP to avoid nested GROUP BY issues
+        $classes = [];
+        foreach ($rows as $r) {
+            $cid = $r['class_id'];
+            if (!isset($classes[$cid])) {
+                $classes[$cid] = [
+                    'class_id'        => $cid,
+                    'class_name'      => $r['class_name'],
+                    'total_enrolled'  => 0,
+                    'total_expected'  => 0,
+                    'total_collected' => 0,
+                    'students_paid'   => 0,
+                    'students_not_paid' => 0,
+                ];
+            }
+            $classes[$cid]['total_enrolled']++;
+            $classes[$cid]['total_expected']  += $r['expected'];
+            $classes[$cid]['total_collected'] += $r['collected'];
+            if ($r['expected'] <= $r['collected']) {
+                $classes[$cid]['students_paid']++;
+            } else {
+                $classes[$cid]['students_not_paid']++;
+            }
+        }
+        foreach ($classes as &$cls) {
+            $cls['total_outstanding'] = $cls['total_expected'] - $cls['total_collected'];
+        }
+        return array_values($classes);
+    }
+
+    public function getBranchFeesReport($sessionID, $outstandingOnly = false)
+    {
+        $sessionEsc = $this->db->escape((int) $sessionID);
+
+        $rows = $this->db->query("
+            SELECT
+                e.branch_id,
+                b.name AS branch_name,
+                s.id   AS student_id,
+                CONCAT(s.first_name,' ',s.last_name) AS student_name,
+                s.register_no,
+                c.name  AS class_name,
+                sec.name AS section_name,
+                SUM(CASE WHEN fg.name LIKE '1ST TERM%' THEN IFNULL(fgd.charged,0) ELSE 0 END) AS t1_charged,
+                SUM(CASE WHEN fg.name LIKE '1ST TERM%' THEN IFNULL(fa.prev_due,0) ELSE 0 END) AS t1_prev_due,
+                SUM(CASE WHEN fg.name LIKE '1ST TERM%' THEN IFNULL(fph.paid,0) ELSE 0 END)    AS t1_paid,
+                SUM(CASE WHEN fg.name LIKE '2ND TERM%' THEN IFNULL(fgd.charged,0) ELSE 0 END) AS t2_charged,
+                SUM(CASE WHEN fg.name LIKE '2ND TERM%' THEN IFNULL(fa.prev_due,0) ELSE 0 END) AS t2_prev_due,
+                SUM(CASE WHEN fg.name LIKE '2ND TERM%' THEN IFNULL(fph.paid,0) ELSE 0 END)    AS t2_paid,
+                SUM(CASE WHEN fg.name LIKE '3RD TERM%' THEN IFNULL(fgd.charged,0) ELSE 0 END) AS t3_charged,
+                SUM(CASE WHEN fg.name LIKE '3RD TERM%' THEN IFNULL(fa.prev_due,0) ELSE 0 END) AS t3_prev_due,
+                SUM(CASE WHEN fg.name LIKE '3RD TERM%' THEN IFNULL(fph.paid,0) ELSE 0 END)    AS t3_paid
+            FROM fee_allocation fa
+            INNER JOIN enroll  e   ON e.id   = fa.student_id
+            INNER JOIN student s   ON s.id   = e.student_id
+            INNER JOIN class   c   ON c.id   = e.class_id
+            INNER JOIN section sec ON sec.id = e.section_id
+            INNER JOIN branch  b   ON b.id   = e.branch_id
+            LEFT  JOIN fee_groups fg ON fg.id = fa.group_id
+            LEFT  JOIN (
+                SELECT fee_groups_id, SUM(amount) AS charged
+                FROM   fee_groups_details GROUP BY fee_groups_id
+            ) fgd ON fgd.fee_groups_id = fa.group_id
+            LEFT  JOIN (
+                SELECT allocation_id, SUM(amount+discount) AS paid
+                FROM   fee_payment_history GROUP BY allocation_id
+            ) fph ON fph.allocation_id = fa.id
+            WHERE fa.session_id = {$sessionEsc}
+            GROUP BY e.id
+            ORDER BY b.name, c.name, sec.name, student_name
+        ")->result_array();
+
+        // Compute per-row outstanding and group by branch
+        $allRows = [];
+        foreach ($rows as $r) {
+            $r['t1_outstanding']    = ($r['t1_charged'] + $r['t1_prev_due']) - $r['t1_paid'];
+            $r['t2_outstanding']    = ($r['t2_charged'] + $r['t2_prev_due']) - $r['t2_paid'];
+            $r['t3_outstanding']    = ($r['t3_charged'] + $r['t3_prev_due']) - $r['t3_paid'];
+            $r['grand_outstanding'] = $r['t1_outstanding'] + $r['t2_outstanding'] + $r['t3_outstanding'];
+
+            if ($outstandingOnly && $r['grand_outstanding'] <= 0) {
+                continue;
+            }
+
+            $bid = $r['branch_id'];
+            if (!isset($allRows[$bid])) {
+                $allRows[$bid] = [
+                    'branch_name' => $r['branch_name'],
+                    'students'    => [],
+                    'totals'      => [
+                        't1_charged' => 0, 't1_paid' => 0, 't1_outstanding' => 0,
+                        't2_charged' => 0, 't2_paid' => 0, 't2_outstanding' => 0,
+                        't3_charged' => 0, 't3_paid' => 0, 't3_outstanding' => 0,
+                        'grand_outstanding' => 0,
+                    ],
+                ];
+            }
+            $allRows[$bid]['students'][] = $r;
+            $t = &$allRows[$bid]['totals'];
+            $t['t1_charged']     += $r['t1_charged'] + $r['t1_prev_due'];
+            $t['t1_paid']        += $r['t1_paid'];
+            $t['t1_outstanding'] += $r['t1_outstanding'];
+            $t['t2_charged']     += $r['t2_charged'] + $r['t2_prev_due'];
+            $t['t2_paid']        += $r['t2_paid'];
+            $t['t2_outstanding'] += $r['t2_outstanding'];
+            $t['t3_charged']     += $r['t3_charged'] + $r['t3_prev_due'];
+            $t['t3_paid']        += $r['t3_paid'];
+            $t['t3_outstanding'] += $r['t3_outstanding'];
+            $t['grand_outstanding'] += $r['grand_outstanding'];
+            unset($t);
+        }
+        return $allRows;
+    }
+
+    public function getDiscountRegister($branchID, $sessionID, $start, $end, $classID = '', $sectionID = '')
+    {
+        $sessionID = $sessionID ?: get_session_id();
+        $this->db->select('h.id as receipt_no, h.date, h.discount, h.amount, h.remarks,
+            ft.name as type_name,
+            s.first_name, s.last_name, s.register_no,
+            c.name as class_name, sec.name as section_name,
+            CASE WHEN h.collect_by = "online" THEN "Online"
+                 WHEN h.collect_by = "wallet" THEN "DVA Wallet"
+                 ELSE CONCAT(st.first_name," ",st.last_name)
+            END as collected_by');
+        $this->db->from('fee_payment_history h');
+        $this->db->join('fee_allocation fa', 'fa.id = h.allocation_id', 'inner');
+        $this->db->join('fees_type ft', 'ft.id = h.type_id', 'left');
+        $this->db->join('enroll e', 'e.id = fa.student_id', 'inner');
+        $this->db->join('student s', 's.id = e.student_id', 'inner');
+        $this->db->join('class c', 'c.id = e.class_id', 'left');
+        $this->db->join('section sec', 'sec.id = e.section_id', 'left');
+        $this->db->join('staff st', 'st.id = h.collect_by', 'left');
+        $this->db->where('h.discount >', 0);
+        $this->db->where('fa.session_id', $sessionID);
+        $this->db->where('e.branch_id', $branchID);
+        $this->db->where('h.date >=', $start);
+        $this->db->where('h.date <=', $end);
+        if (!empty($classID)) {
+            $this->db->where('e.class_id', $classID);
+        }
+        if (!empty($sectionID)) {
+            $this->db->where('e.section_id', $sectionID);
+        }
+        $this->db->order_by('h.date ASC, s.last_name ASC');
+        return $this->db->get()->result_array();
+    }
+
+    public function getCashflowReport($branchID, $sessionID, $start, $end, $groupBy = 'day')
+    {
+        $sessionID = $sessionID ?: get_session_id();
+        $dateFmt = ($groupBy === 'month') ? '%Y-%m' : '%Y-%m-%d';
+
+        $this->db->select("
+            DATE_FORMAT(h.date, '{$dateFmt}') AS period,
+            SUM(CASE WHEN h.collect_by = 'online' THEN h.amount + h.fine - h.discount ELSE 0 END) AS online_total,
+            SUM(CASE WHEN h.collect_by = 'wallet' THEN h.amount + h.fine - h.discount ELSE 0 END) AS dva_total,
+            SUM(CASE WHEN h.collect_by NOT IN ('online','wallet') THEN h.amount + h.fine - h.discount ELSE 0 END) AS cash_total,
+            SUM(h.amount + h.fine - h.discount) AS grand_total,
+            COUNT(DISTINCT h.id) AS transaction_count
+        ", false);
+        $this->db->from('fee_payment_history h');
+        $this->db->join('fee_allocation fa', 'fa.id = h.allocation_id', 'inner');
+        $this->db->join('enroll e', 'e.id = fa.student_id', 'inner');
+        $this->db->where('fa.session_id', $sessionID);
+        $this->db->where('e.branch_id', $branchID);
+        $this->db->where('h.date >=', $start);
+        $this->db->where('h.date <=', $end);
+        $this->db->group_by("DATE_FORMAT(h.date, '{$dateFmt}')");
+        $this->db->order_by("period ASC");
+        return $this->db->get()->result_array();
     }
 }

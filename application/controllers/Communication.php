@@ -47,6 +47,14 @@ class Communication extends Admin_Controller
                 redirect(base_url('dashboard'));
                 exit;
             }
+            $activeUser = loggedin_role_id() . '-' . get_loggedin_user_id();
+            $owned = $this->db->where('id', $id)
+                ->group_start()->where('sender', $activeUser)->or_where('reciever', $activeUser)->group_end()
+                ->count_all_results('message');
+            if (!$owned) {
+                redirect(base_url('dashboard'));
+                exit;
+            }
             $response = $this->communication_model->mark_messages_read($id);
             $this->data['message_id'] = $id;
             $this->data['inside_subview'] = 'message_read';
@@ -99,6 +107,14 @@ class Communication extends Admin_Controller
             $this->form_validation->set_rules('message', 'Message', 'trim|required');
             if ($this->form_validation->run() == true) {
                 $message_id = $this->input->post('message_id');
+                $activeUser = loggedin_role_id() . '-' . get_loggedin_user_id();
+                $owned = $this->db->where('id', $message_id)
+                    ->group_start()->where('sender', $activeUser)->or_where('reciever', $activeUser)->group_end()
+                    ->count_all_results('message');
+                if (!$owned) {
+                    echo json_encode(['status' => 'fail', 'error' => ['message' => translate('access_denied')]]);
+                    return;
+                }
                 if ($this->input->post('user_identity') == 'sender') {
                     $arrayMsg['identity'] = 1;
                     $this->db->where('id', $message_id);
@@ -189,9 +205,15 @@ class Communication extends Admin_Controller
     {
         $arrayID = $this->input->post('arrayID');
         $mode = $this->input->post('mode');
+        if (!in_array($mode, ['sent', 'inbox'], true)) {
+            set_alert('error', 'Invalid operation.');
+            return;
+        }
+        $activeUser = loggedin_role_id() . '-' . get_loggedin_user_id();
         if (count($arrayID)) {
             foreach ($arrayID as $value) {
                 $this->db->where('id', $value);
+                $this->db->group_start()->where('sender', $activeUser)->or_where('reciever', $activeUser)->group_end();
                 $this->db->update('message', array('trash_' . $mode => 1));
             }
             set_alert('success', translate('message_has_been_deleted'));
@@ -243,9 +265,9 @@ class Communication extends Admin_Controller
                 $this->db->where('id', $id);
                 $this->db->update('message', $array);
             }
-            if ($option == 'restore') {
+            if ($mode == 'restore') {
                 set_alert('success', translate('message_has_been_restored'));
-            } elseif ($option == 'delete') {
+            } elseif ($mode == 'delete') {
                 set_alert('success', translate('message_has_been_deleted'));
             }
         } else {

@@ -539,6 +539,7 @@ class Userrole extends User_Controller
                     $this->db->insert('homework_submit', $arrayDB);
                 } else {
                     $this->db->where('id', $assigmentID);
+                    $this->db->where('student_id', get_loggedin_user_id());
                     $this->db->update('homework_submit', $arrayDB);
                 }
                 set_alert('success', translate('information_has_been_saved_successfully'));
@@ -839,6 +840,15 @@ class Userrole extends User_Controller
                 $payment_method = $this->input->post('payment_method');
                 $invoice_no = $this->input->post('invoice_no');
 
+                $stu = $this->userrole_model->getStudentDetails();
+
+                // Verify the allocation belongs to this student before recording payment
+                $allocationOwned = $this->db->where(['id' => (int)$feesType[0], 'student_id' => $stu['enroll_id']])->count_all_results('fee_allocation');
+                if (!$allocationOwned) {
+                    echo json_encode(['status' => 'fail', 'url' => '', 'error' => ['fees_type' => 'Invalid fee selection.']]);
+                    return;
+                }
+
                 $enc_name = null;
                 $orig_name = null;
                 $config = array();
@@ -851,8 +861,6 @@ class Userrole extends User_Controller
                     $orig_name = $this->upload->data('orig_name');
                     $enc_name = $this->upload->data('file_name');
                 }
-
-                $stu = $this->userrole_model->getStudentDetails();
                 $arrayFees = array(
                     'fees_allocation_id' => $feesType[0],
                     'fees_type_id' => $feesType[1],
@@ -897,10 +905,20 @@ class Userrole extends User_Controller
             $fine = 0;
         } else {
             $feesType = explode("|", $input);
-            $fine = $this->fees_model->feeFineCalculation($feesType[0], $feesType[1]);
-            $b = $this->fees_model->getBalance($feesType[0], $feesType[1]);
+            $allocationID = (int)$feesType[0];
+            $typeID       = (int)$feesType[1];
+
+            $stu = $this->userrole_model->getStudentDetails();
+            $owned = $this->db->where(['id' => $allocationID, 'student_id' => $stu['enroll_id']])->count_all_results('fee_allocation');
+            if (!$owned) {
+                echo json_encode(['balance' => 0, 'fine' => 0]);
+                return;
+            }
+
+            $fine    = $this->fees_model->feeFineCalculation($allocationID, $typeID);
+            $b       = $this->fees_model->getBalance($allocationID, $typeID);
             $balance = $b['balance'];
-            $fine = abs($fine - $b['fine']);
+            $fine    = abs($fine - $b['fine']);
         }
         echo json_encode(array('balance' => $balance, 'fine' => $fine));
     }

@@ -26,11 +26,11 @@ $selectedTerm   = set_value('term', '');
 				<?php endif; ?>
 					<div class="col-md-<?=$widget?> mb-sm">
 						<div class="form-group">
-							<label class="control-label"><?=translate('class')?> <span class="required">*</span></label>
+							<label class="control-label"><?=translate('class')?> <small class="text-muted">(<?=translate('optional')?>)</small></label>
 							<?php
 								$arrayClass = $this->app_lib->getClass($branch_id);
 								echo form_dropdown("class_id", $arrayClass, set_value('class_id'), "class='form-control' id='class_id' onchange='getSectionByClass(this.value,0)'
-								required data-plugin-selectTwo data-width='100%' data-minimum-results-for-search='Infinity'");
+								data-plugin-selectTwo data-width='100%' data-minimum-results-for-search='Infinity'");
 							?>
 						</div>
 					</div>
