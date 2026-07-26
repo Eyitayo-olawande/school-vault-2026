@@ -14,7 +14,7 @@ class Qrcode_attendance extends Admin_Controller
 
     public function camera_scan()
     {
-        if (!get_permission('qr_code_student_attendance', 'is_add')) {
+        if (!get_permission('student_attendance', 'is_add')) {
             access_denied();
         }
         $this->data['branch_id'] = $this->application_model->get_branch_id();
@@ -27,7 +27,7 @@ class Qrcode_attendance extends Admin_Controller
     /** Generate and print QR code sheet for a class/section. */
     public function generate()
     {
-        if (!get_permission('qr_code_student_attendance', 'is_add')) {
+        if (!get_permission('student_attendance', 'is_add')) {
             access_denied();
         }
 
@@ -56,7 +56,7 @@ class Qrcode_attendance extends Admin_Controller
     /** Serve a single QR code image for a given student token. */
     public function qr_image($token = '')
     {
-        if (!get_permission('qr_code_student_attendance', 'is_add')) {
+        if (!get_permission('student_attendance', 'is_add')) {
             access_denied();
         }
 
@@ -99,7 +99,7 @@ class Qrcode_attendance extends Admin_Controller
      */
     public function open_session()
     {
-        if (!get_permission('qr_code_student_attendance', 'is_add')) {
+        if (!get_permission('student_attendance', 'is_add')) {
             ajax_access_denied();
         }
         if (!$_POST) {
@@ -151,7 +151,7 @@ class Qrcode_attendance extends Admin_Controller
      */
     public function scan($token = '')
     {
-        if (!get_permission('qr_code_student_attendance', 'is_add')) {
+        if (!get_permission('student_attendance', 'is_add')) {
             access_denied();
         }
 

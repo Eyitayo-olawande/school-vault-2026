@@ -10,7 +10,7 @@ class Term_dates extends Admin_Controller
 
     public function index()
     {
-        if (!get_permission('term_dates', 'is_view')) {
+        if (!get_permission('exam_term', 'is_view')) {
             access_denied();
         }
         $branchID = $this->application_model->get_branch_id();
@@ -37,7 +37,7 @@ class Term_dates extends Admin_Controller
 
     public function save()
     {
-        if (!get_permission('term_dates', 'is_add')) {
+        if (!get_permission('exam_term', 'is_add')) {
             ajax_access_denied();
         }
         if (!$_POST) { return; }
@@ -81,7 +81,7 @@ class Term_dates extends Admin_Controller
 
     public function delete($id)
     {
-        if (!get_permission('term_dates', 'is_delete')) {
+        if (!get_permission('exam_term', 'is_delete')) {
             ajax_access_denied();
         }
         $branchID = $this->application_model->get_branch_id();
