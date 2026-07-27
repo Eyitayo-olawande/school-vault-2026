@@ -133,6 +133,30 @@ function isEnabledSubscription($schoolID = '')
     }
 }
 
+/**
+ * True when a controller actually exists in this build.
+ *
+ * Menu items are shared across deployments that do not all ship the same
+ * controllers, so a link can point straight at a 404. Guarding the menu item
+ * with this hides it until the controller is present, and it reappears on its
+ * own once the file is deployed -- no per-deployment menu editing.
+ *
+ * Matches CodeIgniter's loader, which ucfirst()s the segment, so the check is
+ * accurate on case-sensitive filesystems too.
+ */
+function controller_exists($name)
+{
+    static $cache = array();
+    $name = trim((string) $name, '/');
+    if ($name === '' || preg_match('/[^a-zA-Z0-9_]/', $name)) {
+        return false;
+    }
+    if (!isset($cache[$name])) {
+        $cache[$name] = is_file(APPPATH . 'controllers/' . ucfirst($name) . '.php');
+    }
+    return $cache[$name];
+}
+
 function get_permission($permission, $can = '')
 {
     $ci = &get_instance();

@@ -312,7 +312,7 @@
                                 </a>
                             </li>
                         <?php } 
-                        if (moduleIsEnabled('multi_class')) {
+                        if (moduleIsEnabled('multi_class') && controller_exists('multiclass')) {
                             if(get_permission('multi_class', 'is_add')) { ?>
 
                             <li class="<?php if ($sub_page == 'multiclass/index') echo 'nav-active';?>">
@@ -894,7 +894,7 @@
                                             <span><?=translate('exam_setup')?></span>
                                         </a>
                                     </li>
-                                    <?php } if (get_permission('marksheet_template', 'is_view')) { ?>
+                                    <?php } if (get_permission('marksheet_template', 'is_view') && controller_exists('marksheet_template')) { ?>
                                     <li class="<?php if ($sub_page == 'marksheet_template/index') echo 'nav-active';?>">
                                         <a href="<?=base_url('marksheet_template/index')?>">
                                             <span><?=translate('marksheet') . " " . translate('template')?></span>
@@ -1158,7 +1158,7 @@
                                     <span><i class="fas fa-caret-right"></i><?=translate('student')?></span>
                                 </a>
                             </li>
-                            <?php } if ($getAttendanceType == 2 || $getAttendanceType == 1) { ?>
+                            <?php } if (($getAttendanceType == 2 || $getAttendanceType == 1) && controller_exists('attendance_period')) { ?>
                             <li class="<?php if ($sub_page == 'attendance_period/index') echo 'nav-active';?>">
                                 <a href="<?=base_url('attendance_period/index')?>">
                                     <span><i class="fas fa-caret-right"></i><?=translate('subject_wise')?></span>
@@ -1638,7 +1638,7 @@
                                             <?=translate('student') . ' ' . translate('overview_reports')?>
                                         </a>
                                     </li>
-                                <?php } if ($getAttendanceType == 2 || $getAttendanceType == 1) { ?>
+                                <?php } if (($getAttendanceType == 2 || $getAttendanceType == 1) && controller_exists('attendance_period')) { ?>
                                     <li class="<?php if ($sub_page == 'attendance_period/reports') echo 'nav-active';?>">
                                         <a href="<?=base_url('attendance_period/reports')?>">
                                             <?=translate('subject_wise_reports') ?>
@@ -1764,13 +1764,13 @@
                             <i class="fa-solid fa-person-chalkboard"></i><span><?=translate('alumni')?></span>
                         </a>
                         <ul class="nav nav-children">
-                            <?php if(get_permission('manage_alumni', 'is_view')){ ?>
+                            <?php if(get_permission('manage_alumni', 'is_view') && controller_exists('alumni')){ ?>
                                 <li class="<?php if ($sub_page == 'alumni/index') echo 'nav-active'; ?>">
                                     <a href="<?php echo base_url('alumni/index'); ?>">
                                         <span><i class="fas fa-caret-right" aria-hidden="true"></i><?php echo translate('manage_alumni'); ?></span>
                                     </a>
                                 </li>
-                            <?php } if(get_permission('alumni_events', 'is_view')){ ?>
+                            <?php } if(get_permission('alumni_events', 'is_view') && controller_exists('alumni')){ ?>
                             <li class="<?php if ($sub_page == 'alumni/events') echo 'nav-active'; ?>">
                                 <a href="<?php echo base_url('alumni/event'); ?>">
                                     <span><i class="fas fa-caret-right" aria-hidden="true"></i><?php echo translate('events'); ?></span>
@@ -1886,7 +1886,7 @@
                                     <span><i class="fas fa-caret-right" aria-hidden="true"></i><?=translate('system_update')?></span>
                                 </a>
                             </li>
-                            <?php } if(get_permission('user_login_log', 'is_view')){ ?>
+                            <?php } if(get_permission('user_login_log', 'is_view') && controller_exists('user_login_log')){ ?>
                             <li class="<?php if ($sub_page == 'user_login_log/index') echo 'nav-active';?>">
                                 <a href="<?=base_url('user_login_log/index')?>">
                                     <span><i class="fas fa-caret-right" aria-hidden="true"></i><?=translate('user_login_log')?></span>
