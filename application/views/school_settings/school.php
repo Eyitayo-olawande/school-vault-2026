@@ -213,16 +213,19 @@
                                     <label class="col-md-3 control-label"><?=translate('currency_formats');?> <span class="required">*</span></label>
                                     <div class="col-md-6">
                                         <?php
+                                        // Labels are the real output of currencyFormat() for 12300000.50,
+                                        // so what you pick is what you get. Values 3 and 5 previously
+                                        // showed an identical label despite 3 rendering three decimals.
                                         $digitArray = array(
-                                            '' => translate('select'), 
-                                            '1' => "12300000.50", 
-                                            '2' => "1,23,000,00.50", 
-                                            '3' => "123,000,00.50", 
-                                            '4' => "123.000.00,50", 
-                                            '5' => "123,000,00.50", 
-                                            '6' => "123 000 00,50", 
-                                            '7' => "123 000 00.50", 
-                                            '8' => "12300000", 
+                                            '' => translate('select'),
+                                            '1' => "12300000.50",     // no separator
+                                            '2' => "1,23,00,000.50",  // Indian grouping
+                                            '3' => "12,300,000.500",  // 3 decimal places
+                                            '4' => "12.300.000,50",
+                                            '5' => "12,300,000.50",
+                                            '6' => "12 300 000,50",
+                                            '7' => "12 300 000.50",
+                                            '8' => "12,300,001",      // rounded, no decimals
                                         );
                                         echo form_dropdown("currency_formats", $digitArray, set_value('currency_formats', $school['currency_formats']), "class='form-control' data-plugin-selectTwo 
                                         data-width='100%' ");
