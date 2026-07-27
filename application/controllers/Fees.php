@@ -1678,7 +1678,22 @@ class Fees extends Admin_Controller
             $dateA          = $this->input->post('date_a')           ?: date('Y-m-d');
             $dateB          = $this->input->post('date_b')           ?: date('Y-m-d');
             $includePrevDue = (int) ($this->input->post('include_prev_due') ?: 0);
-            $this->data['results']         = $this->fees_model->getSectionFeesSummary($sessionID, $branchID, $term, $dateA, $dateB, $includePrevDue);
+            // The view iterates $rows and reads $totals; both must be set or the
+            // entire results block is skipped and the page renders filters only.
+            $rows = $this->fees_model->getSectionFeesSummary($sessionID, $branchID, $term, $dateA, $dateB, $includePrevDue);
+
+            $totals = ['enrolled' => 0, 'expected' => 0, 'paid_a' => 0, 'balance_a' => 0, 'paid_b' => 0, 'balance_b' => 0];
+            foreach ($rows as $r) {
+                $totals['enrolled']  += (int) $r['total_enrolled'];
+                $totals['expected']  += (float) $r['total_expected'];
+                $totals['paid_a']    += (float) $r['paid_a'];
+                $totals['balance_a'] += (float) $r['balance_a'];
+                $totals['paid_b']    += (float) $r['paid_b'];
+                $totals['balance_b'] += (float) $r['balance_b'];
+            }
+
+            $this->data['rows']            = $rows;
+            $this->data['totals']          = $totals;
             $this->data['session_id']      = $sessionID;
             $this->data['term']            = $term;
             $this->data['date_a']          = $dateA;

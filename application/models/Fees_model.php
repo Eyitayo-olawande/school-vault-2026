@@ -1054,9 +1054,11 @@ class Fees_model extends MY_Model
 
         $sql = "
             SELECT
+                c.id     AS class_id,
                 c.name   AS class_name,
                 sec.name AS section_name,
-                SUM(IFNULL(fgd.charged,0) {$prevDue})                                AS total_charged,
+                COUNT(DISTINCT e.id)                                                 AS total_enrolled,
+                SUM(IFNULL(fgd.charged,0) {$prevDue})                                AS total_expected,
                 IFNULL(SUM(CASE WHEN fph.pay_date <= {$dateAEsc} THEN fph.net ELSE 0 END), 0) AS paid_a,
                 IFNULL(SUM(CASE WHEN fph.pay_date <= {$dateBEsc} THEN fph.net ELSE 0 END), 0) AS paid_b,
                 SUM(IFNULL(fgd.charged,0) {$prevDue})
