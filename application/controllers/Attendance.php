@@ -178,8 +178,13 @@ class Attendance extends Admin_Controller
                     ]);
                 }
 
-                // Queue SMS for Absent, Late, and Half Day (template IDs: 3=absent, 11=late, 12=half-day)
-                $smsTemplateMap = ['A' => 3, 'L' => 11, 'HD' => 12];
+                // Only Absent notifies, via template 3 (attendance).
+                //
+                // Late and Half Day previously mapped to 11 and 12. There is no template 11, so
+                // Late silently never sent; template 12 is dva_fee_allocation, so marking a
+                // student Half Day sent their parent a fee-allocation message. Give Late and
+                // Half Day their own templates before adding them back here.
+                $smsTemplateMap = ['A' => 3];
                 if (isset($smsTemplateMap[$attStatus])) {
                     $arrayAttendance['student_id'] = $studentID;
                     $this->_queue_attendance_sms($arrayAttendance, $smsTemplateMap[$attStatus]);
