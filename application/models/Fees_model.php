@@ -221,6 +221,43 @@ class Fees_model extends MY_Model
         return $student;
     }
 
+    /**
+     * Same as getInvoiceDetails(), but across every session rather than only the
+     * active one, with the school year attached so the caller can group by it.
+     *
+     * Promotion moves a student's single enroll row forward, so once they are
+     * promoted their earlier fees sit under a previous session_id and vanish
+     * from any view filtered on the active session -- including fees that were
+     * fully paid. enroll.id is stable across promotion, so the history is still
+     * attached; it just needs to be asked for without the session filter.
+     *
+     * Deliberately separate from getInvoiceDetails(): fee collection, invoice
+     * printing and the parent portal must stay scoped to the current session,
+     * or a student would be billed for previous years.
+     */
+    public function getInvoiceDetailsAllSessions($enrollID = '')
+    {
+        $sql = "SELECT fa.group_id, fa.prev_due, fa.id AS allocation_id, fa.session_id,
+                       sy.school_year, fg.name AS group_name,
+                       ft.name, ft.system, fgd.amount, fgd.due_date, fgd.fee_type_id
+                FROM fee_allocation fa
+                LEFT JOIN fee_groups_details fgd ON fgd.fee_groups_id = fa.group_id
+                LEFT JOIN fees_type   ft ON ft.id = fgd.fee_type_id
+                LEFT JOIN fee_groups  fg ON fg.id = fa.group_id
+                LEFT JOIN schoolyear  sy ON sy.id = fa.session_id
+                WHERE fa.student_id = " . $this->db->escape($enrollID) . "
+                ORDER BY fa.session_id DESC, fa.group_id ASC, ft.id ASC";
+
+        $rows = array();
+        foreach ($this->db->query($sql)->result_array() as $value) {
+            if ($value['system'] == 1) {
+                $value['amount'] = $value['prev_due'];
+            }
+            $rows[] = $value;
+        }
+        return $rows;
+    }
+
     public function getInvoiceBasic($enrollID = '')
     {
         $sessionID = get_session_id();
