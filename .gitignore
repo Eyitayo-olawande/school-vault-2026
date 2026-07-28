@@ -5,3 +5,8 @@ application/logs/*.txt
 application/cache/*
 !application/cache/index.html
 .DS_Store
+
+# Per-deployment config: real credentials and the encryption key must never be
+# committed. Copy the .example files and fill them in on each server.
+application/config/config.php
+application/config/database.php
