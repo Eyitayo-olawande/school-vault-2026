@@ -343,9 +343,19 @@ if ($last_name['status'] == 1 || $gender['status'] == 1 || $blood_group['status'
 										$total_paid = 0;
 										$total_balance = 0;
 										$total_amount = 0;
-										$allocations = $this->fees_model->getInvoiceDetails($student['id']);
+										$allocations = $this->fees_model->getInvoiceDetailsAllSessions($student['enrollid']);
+										$activeSession = get_session_id();
+										$shownSession  = null;
 										if (!empty($allocations)) {
 										foreach ($allocations as $fee) {
+											if ($shownSession !== $fee['session_id']) {
+												$shownSession = $fee['session_id'];
+												echo '<tr style="background:#eef2f7"><td colspan="9"><strong>'
+												   . html_escape($fee['school_year'] ? $fee['school_year'] : 'Unknown session')
+												   . '</strong>'
+												   . (((int)$shownSession === (int)$activeSession) ? ' <span class="label label-success-custom">Current</span>' : '')
+												   . '</td></tr>';
+											}
 											$deposit = $this->fees_model->getStudentFeeDeposit($fee['allocation_id'], $fee['fee_type_id']);
 											$type_discount = $deposit['total_discount'];
 											$type_fine = $deposit['total_fine'];
