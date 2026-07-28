@@ -125,9 +125,13 @@ class Student_promotion extends Admin_Controller
                             $promotion_history['is_leave'] = 1;
                         } else {
                             $roll = empty($value['roll']) ? 0 : $value['roll'];
-                            // check existing enroll in target session
+                            // enroll.student_id is UNIQUE, so a student has exactly one row and
+                            // promotion moves that row forward. Look it up by student alone:
+                            // filtering on the target session finds nothing the first time a
+                            // student is promoted into a new session, which sent this down the
+                            // INSERT path and failed on the unique key -- silently in production,
+                            // where db_debug is off.
                             $this->db->where('student_id', $student_id);
-                            $this->db->where('session_id', $promote_session_id);
                             $query = $this->db->get('enroll');
 
                             $arrayData = array(
