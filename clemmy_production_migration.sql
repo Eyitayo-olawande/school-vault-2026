@@ -275,3 +275,17 @@ ALTER TABLE `student_attendance` ADD COLUMN IF NOT EXISTS `capture_method` varch
 -- ALTER TABLE `offline_fees_payments` MODIFY `amount` decimal(10,2) NOT NULL DEFAULT 0.00;
 -- ALTER TABLE `offline_fees_payments` MODIFY `fine`   decimal(10,2) NOT NULL DEFAULT 0.00;
 -- ---------------------------------------------------------------------------
+
+
+-- ---------------------------------------------------------------------------
+-- SECTION 4 — promotion_history.is_leave
+--
+-- Student_promotion::transfersave() sets 'is_leave' on every promotion_history
+-- row (1 when the student is marked Leave / Add Alumni, 0 otherwise), but the
+-- column exists in no deployment, so the insert failed and the whole promotion
+-- returned a 500. Existing rows predate the flag and are all ordinary
+-- promotions, so 0 is the correct backfill.
+-- ---------------------------------------------------------------------------
+
+ALTER TABLE `promotion_history`
+  ADD COLUMN IF NOT EXISTS `is_leave` TINYINT(1) NOT NULL DEFAULT 0;

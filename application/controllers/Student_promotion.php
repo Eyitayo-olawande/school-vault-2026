@@ -151,11 +151,15 @@ class Student_promotion extends Admin_Controller
                                 $enroll_id = $this->db->insert_id();
                             }
 
-                            // D: Carry forward transport fee details to the new enroll record
-                            $oldTransport = $this->db
-                                ->where('enroll_id', $old_enroll_id)
-                                ->get('transport_fee_details')->result_array();
-                            if (!empty($oldTransport)) {
+                            // D: Carry forward transport fee details to the new enroll record.
+                            // The transport-fee tables ship with an addon that is not installed
+                            // here, so query them only when they actually exist -- otherwise this
+                            // block raised a DB error and took the whole promotion down with it.
+                            $oldTransport = $this->db->table_exists('transport_fee_details')
+                                ? $this->db->where('enroll_id', $old_enroll_id)
+                                           ->get('transport_fee_details')->result_array()
+                                : array();
+                            if (!empty($oldTransport) && $this->db->table_exists('transport_fee_fine')) {
                                 // Find matching transport_fee_fine IDs for the new session
                                 $newSessionFines = $this->db
                                     ->select('id, month')
