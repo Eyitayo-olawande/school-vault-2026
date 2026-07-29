@@ -606,11 +606,17 @@ $feesActive = isset($student['fees_active']) ? (int)$student['fees_active'] : 1;
 											$type_fine = $deposit['total_fine'];
 											$type_amount = $deposit['total_amount'];
 											$balance = $fee['amount'] - ($type_amount + $type_discount);
-											$total_discount += $type_discount;
-											$total_fine += $type_fine;
-											$total_paid += $type_amount;
-											$total_balance += $balance;
-											$total_amount += $fee['amount'];
+											// Totals count the latest session only. An unpaid fee from a prior session
+											// is restated there as "Prev Balance: <fee>", and older manual promotions
+											// copied allocations forward the same way -- counting both sides would bill
+											// the same debt twice.
+											if (!empty($fee['is_current'])) {
+												$total_discount += $type_discount;
+												$total_fine += $type_fine;
+												$total_paid += $type_amount;
+												$total_balance += $balance;
+												$total_amount += $fee['amount'];
+											}
 			
 										?>
 									<tr>
@@ -620,10 +626,16 @@ $feesActive = isset($student['fees_active']) ? (int)$student['fees_active'] : 1;
 										<td><?php 
 											$status = 0;
 											$labelmode = '';
-											if($type_amount == 0) {
+											if (!empty($fee['carried_forward'])) {
+												// Balance moved into a later session as "Prev Balance"; it is settled
+												// through that row, so showing Unpaid here would send a bursar chasing
+												// money that may already be paid.
+												$status = 'Carried forward';
+												$labelmode = 'label-default';
+											} elseif ($type_amount == 0) {
 												$status = translate('unpaid');
 												$labelmode = 'label-danger-custom';
-											} elseif($balance == 0) {
+											} elseif ($balance == 0) {
 												$status = translate('total_paid');
 												$labelmode = 'label-success-custom';
 											} else {
@@ -644,10 +656,7 @@ $feesActive = isset($student['fees_active']) ? (int)$student['fees_active'] : 1;
 								</tbody>
 								<tfoot>
 									<tr class="text-dark">
-										<th></th>
-										<th></th>
-										<th></th>
-										<th></th>
+										<th colspan="4" style="font-weight:600">Current session total</th>
 										<th><?php echo currencyFormat($total_amount); ?></th>
 										<th><?php echo currencyFormat($total_discount); ?></th>
 										<th><?php echo currencyFormat($total_fine); ?></th>

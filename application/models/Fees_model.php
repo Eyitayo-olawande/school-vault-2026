@@ -249,11 +249,43 @@ class Fees_model extends MY_Model
                 ORDER BY fa.session_id DESC, fa.group_id ASC, ft.id ASC";
 
         $rows = array();
+        $latestSession = null;
         foreach ($this->db->query($sql)->result_array() as $value) {
             if ($value['system'] == 1) {
                 $value['amount'] = $value['prev_due'];
             }
+            if ($latestSession === null || (int) $value['session_id'] > $latestSession) {
+                $latestSession = (int) $value['session_id'];
+            }
             $rows[] = $value;
+        }
+
+        // Flag which rows belong to the student's most recent session. Totals must count
+        // those only, or the same debt is added twice: an unpaid fee left behind in the
+        // old session is restated in the new one as "Prev Balance: <that fee>", and the
+        // older manual promotions copied whole allocations forward the same way. Earlier
+        // sessions stay in the list as history but are superseded, not owed again.
+        // Names of the source groups that a later "Prev Balance: <name>" restates.
+        // carryForwardDue() builds that name by prefixing the source group's own name,
+        // so the link is exact rather than inferred.
+        $carried = array();
+        foreach ($rows as $r) {
+            if (!empty($r['system']) && strpos($r['group_name'], 'Prev Balance:') === 0) {
+                $carried[trim(substr($r['group_name'], 13))] = (int) $r['session_id'];
+            }
+        }
+
+        foreach ($rows as $i => $r) {
+            $rows[$i]['is_current'] = ((int) $r['session_id'] === $latestSession) ? 1 : 0;
+
+            // An outstanding fee in an older session whose balance was carried into a
+            // later one is settled through that carry-forward, not still owed here.
+            // Payments key on allocation_id, so this row keeps its original zero-paid
+            // figures forever and would otherwise read as an unpaid debt indefinitely.
+            $rows[$i]['carried_forward'] = (
+                isset($carried[$r['group_name']])
+                && $carried[$r['group_name']] > (int) $r['session_id']
+            ) ? 1 : 0;
         }
         return $rows;
     }
