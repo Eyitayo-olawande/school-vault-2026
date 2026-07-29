@@ -13,8 +13,8 @@ if ($extINTL == true) {
 
 if (count($student_array)) {
 	foreach ($student_array as $key => $value) {
-		$invoice = $this->fees_model->getInvoiceStatus($value);
-		$basic = $this->fees_model->getInvoiceBasic($value);
+		$basic   = $this->fees_model->getInvoiceBasic($value);
+		$invoice = $this->fees_model->getInvoiceStatus($basic['id']);
 ?>
 <div class="invoice">
 	<header class="clearfix">

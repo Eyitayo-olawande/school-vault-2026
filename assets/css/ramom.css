@@ -910,7 +910,8 @@ html.dark .prog-subl {
 .label-info-custom,
 .label-success-custom,
 .label-primary-custom,
-.label-warning-custom {
+.label-warning-custom,
+.label-scholarship {
 	font-size: 85% !important;
 	background-color: transparent;
 }
@@ -928,6 +929,11 @@ html.dark .prog-subl {
 .label-success-custom {
 	border: #47a447 1px solid;
 	color: #47a447;
+}
+
+.label-scholarship {
+	border: #8e44ad 1px solid;
+	color: #8e44ad;
 }
 
 .label-primary-custom {
