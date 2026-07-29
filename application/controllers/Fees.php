@@ -695,7 +695,9 @@ class Fees extends Admin_Controller
         if (moduleIsEnabled('transport')) {
             $this->data['transport_fees'] = $this->fees_model->getStudentTransportFees($enrollID, $basic['stoppage_point_id']);
         }
-        $this->data['invoice'] = $this->fees_model->getInvoiceStatus($enrollID);
+        $this->data['invoice']           = $this->fees_model->getInvoiceStatus($basic['id']);
+        $this->data['scholarship']       = $this->fees_model->getStudentScholarship($basic['id']);
+        $this->data['scholarship_types'] = $this->fees_model->getScholarshipTypes($basic['branch_id']);
         $this->data['basic'] = $basic;
         $this->data['title'] = translate('invoice_history');
         $this->data['main_menu'] = 'fees';
@@ -838,11 +840,11 @@ class Fees extends Admin_Controller
                                 $actions .= '<a href="' . base_url('fees/invoice/' . $record->enroll_id) . '" class="btn btn-default btn-circle"><i class="far fa-arrow-alt-circle-right"></i> ' . translate('collect') . '</a>';
                             }
                             if (get_permission('invoice', 'is_delete')) {
-                                $actions .=  btn_delete('fees/invoice_delete/' . $record->enroll_id);
+                                $actions .=  btn_delete('fees/invoice_delete/' . $record->student_id);
                             }
 
                             // getting fees group list
-                            $feegroup = $this->fees_model->getfeeGroup($record->enroll_id);
+                            $feegroup = $this->fees_model->getfeeGroup($record->student_id);
                             $groupList = '';
                             foreach ($feegroup as $key => $value) {
                                 $groupList .= "- " . $value['name'] . "<br>";
@@ -1142,6 +1144,89 @@ class Fees extends Admin_Controller
         }
     }
 
+    // ── Scholarship endpoints ─────────────────────────────────────────────────
+
+    public function scholarship_assign()
+    {
+        if (!get_permission('collect_fees', 'is_add')) {
+            ajax_access_denied();
+        }
+        $student_id  = (int)$this->input->post('student_id');
+        $type_id     = (int)$this->input->post('scholarship_type_id');
+        $notes       = $this->input->post('notes') ?? '';
+        $session_id  = get_session_id();
+        $branch_id   = $this->application_model->get_branch_id();
+
+        if (!$student_id || !$type_id) {
+            echo json_encode(['status' => 'fail', 'error' => 'Missing required fields.']);
+            return;
+        }
+        $this->fees_model->assignScholarship($student_id, $type_id, $session_id, $branch_id, $notes);
+        echo json_encode(['status' => 'success']);
+    }
+
+    public function scholarship_remove()
+    {
+        if (!get_permission('collect_fees', 'is_add')) {
+            ajax_access_denied();
+        }
+        $student_id = (int)$this->input->post('student_id');
+        $session_id = get_session_id();
+        $this->fees_model->removeScholarship($student_id, $session_id);
+        echo json_encode(['status' => 'success']);
+    }
+
+    public function scholarship_types()
+    {
+        if (!get_permission('fees_allocation', 'is_view')) {
+            access_denied();
+        }
+        $branchID = $this->application_model->get_branch_id();
+
+        if ($this->input->post('action') === 'save') {
+            if (!get_permission('fees_allocation', 'is_add')) {
+                ajax_access_denied();
+            }
+            $data = [
+                'id'          => (int)$this->input->post('id'),
+                'name'        => $this->input->post('name'),
+                'description' => $this->input->post('description'),
+                'branch_id'   => is_superadmin_loggedin() ? (int)$this->input->post('branch_id') : $branchID,
+            ];
+            $this->fees_model->saveScholarshipType($data);
+            set_alert('success', 'Scholarship type saved.');
+            echo json_encode(['status' => 'success']);
+            return;
+        }
+        if ($this->input->post('action') === 'delete') {
+            if (!get_permission('fees_allocation', 'is_delete')) {
+                ajax_access_denied();
+            }
+            $this->fees_model->deleteScholarshipType((int)$this->input->post('id'));
+            echo json_encode(['status' => 'success']);
+            return;
+        }
+
+        $this->data['types']     = $this->fees_model->getScholarshipTypes($branchID);
+        $this->data['branch_id'] = $branchID;
+        $this->data['title']     = 'Scholarship Types';
+        $this->data['main_menu'] = 'fees';
+        $this->data['sub_page']  = 'fees/scholarship_types';
+        $this->load->view('layout/index', $this->data);
+    }
+
+    public function scholarship_type_delete($id)
+    {
+        if (!get_permission('fees_allocation', 'is_delete')) {
+            ajax_access_denied();
+        }
+        $this->fees_model->deleteScholarshipType((int)$id);
+        set_alert('success', 'Scholarship type deleted.');
+        redirect('fees/scholarship_types');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+
     public function due_report()
     {
         if (!get_permission('fees_reports', 'is_view')) {
@@ -1348,7 +1433,7 @@ class Fees extends Admin_Controller
             if (empty($basic))
                 ajax_access_denied();
 
-            $allocations = $this->fees_model->getInvoiceDetails($invoiceID);
+            $allocations = $this->fees_model->getInvoiceDetails($basic['id']);
             $totalBalance = 0;
             $totalFine = 0;
             $allPaymentIDs = [];

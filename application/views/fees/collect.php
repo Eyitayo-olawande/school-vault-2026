@@ -17,14 +17,19 @@ if ($extINTL == true) {
 				<a href="#history" data-toggle="tab"><i class="fas fa-dollar-sign"></i> <?=translate('payment_history')?></a>
 			</li>
 <?php endif; ?>
-<?php if (get_permission('collect_fees', 'is_add') && $invoice['status'] != 'total'): ?>
+<?php if (get_permission('collect_fees', 'is_add') && $invoice['status'] != 'total' && empty($scholarship)): ?>
 			<li>
 				<a href="#collect_fees" data-toggle="tab"><i class="fas fa-hand-holding-usd"></i> <?=translate('collect_fees')?></a>
 			</li>
 <?php endif; ?>
-<?php if (get_permission('collect_fees', 'is_add') && $invoice['status'] != 'total'): ?>
+<?php if (get_permission('collect_fees', 'is_add') && $invoice['status'] != 'total' && empty($scholarship)): ?>
 			<li>
 				<a href="#fully_paid" data-toggle="tab"><i class="far fa-credit-card"></i> Fully Paid</a>
+			</li>
+<?php endif; ?>
+<?php if (get_permission('collect_fees', 'is_add')): ?>
+			<li>
+				<a href="#scholarship_tab" data-toggle="tab"><i class="fas fa-graduation-cap"></i> Scholarship<?php if (!empty($scholarship)): ?> <span class="label label-scholarship ml-xs"><?=htmlspecialchars($scholarship['scholarship_name'])?></span><?php endif; ?></a>
 			</li>
 <?php endif; ?>
 		</ul>
@@ -567,7 +572,7 @@ if ($extINTL == true) {
 								</div>
 							</div>
 						</div>
-						<input type="hidden" name="invoice_id" value="<?php echo $basic['id']; ?>">
+						<input type="hidden" name="invoice_id" value="<?php echo $basic['enroll_id']; ?>">
 						<input type="hidden" name="branch_id" value="<?=$basic['branch_id']?>">
 						<input type="hidden" name="student_id" value="<?=$basic['id']?>">
 						<footer class="panel-footer">
@@ -581,6 +586,61 @@ if ($extINTL == true) {
 						</footer>
 					<?php echo form_close();?>
 				</div>
+			<?php endif; ?>
+
+			<?php if (get_permission('collect_fees', 'is_add')): ?>
+			<div id="scholarship_tab" class="tab-pane">
+				<div class="panel-body">
+					<?php if (!empty($scholarship)): ?>
+					<!-- Active scholarship: show details + remove button -->
+					<div class="alert alert-info">
+						<h4><i class="fas fa-graduation-cap"></i> <?=htmlspecialchars($scholarship['scholarship_name'])?></h4>
+						<?php if (!empty($scholarship['notes'])): ?>
+						<p><?=htmlspecialchars($scholarship['notes'])?></p>
+						<?php endif; ?>
+					</div>
+					<?php echo form_open('fees/scholarship_remove', array('class' => 'frm-submit')); ?>
+					<input type="hidden" name="student_id" value="<?=$basic['id']?>">
+					<button type="submit" class="btn btn-danger" onclick="return confirm('Remove scholarship from this student?')" data-loading-text="<i class='fas fa-spinner fa-spin'></i> Removing">
+						<i class="fas fa-times"></i> Remove Scholarship
+					</button>
+					<?php echo form_close(); ?>
+					<?php else: ?>
+					<!-- No scholarship: show assign form -->
+					<?php echo form_open('fees/scholarship_assign', array('class' => 'form-horizontal frm-submit')); ?>
+					<div class="form-group">
+						<label class="col-md-3 control-label">Scholarship Type <span class="required">*</span></label>
+						<div class="col-md-6">
+							<?php
+							$type_options = array('' => '— Select Type —');
+							foreach ($scholarship_types as $t) {
+								$type_options[$t['id']] = $t['name'];
+							}
+							echo form_dropdown('scholarship_type_id', $type_options, '', "class='form-control' required data-plugin-selectTwo data-width='100%' data-minimum-results-for-search='Infinity'");
+							?>
+							<span class="error"></span>
+						</div>
+					</div>
+					<div class="form-group">
+						<label class="col-md-3 control-label">Notes</label>
+						<div class="col-md-6">
+							<textarea name="notes" rows="3" class="form-control" placeholder="Optional notes about this scholarship"></textarea>
+						</div>
+					</div>
+					<input type="hidden" name="student_id" value="<?=$basic['id']?>">
+					<footer class="panel-footer">
+						<div class="row">
+							<div class="col-md-offset-3 col-md-3">
+								<button type="submit" class="btn btn-default" data-loading-text="<i class='fas fa-spinner fa-spin'></i> Saving">
+									<i class="fas fa-graduation-cap"></i> Assign Scholarship
+								</button>
+							</div>
+						</div>
+					</footer>
+					<?php echo form_close(); ?>
+					<?php endif; ?>
+				</div>
+			</div>
 			<?php endif; ?>
 		</div>
 	</div>

@@ -352,7 +352,7 @@ class Fees_model extends MY_Model
 
         $this->datatables->select('e.id as enroll_id,e.student_id,e.roll,s.first_name,s.last_name,s.register_no,s.mobileno,c.name as class_name,se.name as section_name');
         $this->datatables->from('fee_allocation as fa');
-        $this->datatables->join('enroll as e', 'e.id = fa.student_id and e.session_id = fa.session_id', 'inner');
+        $this->datatables->join('enroll as e', 'e.student_id = fa.student_id', 'inner');
         $this->datatables->join('student as s', 's.id = e.student_id', 'left');
         $this->datatables->join('class as c', 'c.id = e.class_id', 'left');
         $this->datatables->join('section as se', 'se.id = e.section_id', 'left');
@@ -395,8 +395,11 @@ class Fees_model extends MY_Model
                 $actions .= '<a href="' . base_url('fees/invoice/' . $record->enroll_id) . '" class="btn btn-default btn-circle"><i class="far fa-arrow-alt-circle-right"></i> ' . translate('collect') . '</a>';
             }
             if (get_permission('invoice', 'is_delete')) {
-                $actions .= btn_delete('fees/invoice_delete/' . $record->enroll_id);
+                $actions .= btn_delete('fees/invoice_delete/' . $record->student_id);
             }
+
+            // scholarship status for badge
+            $scholarship = $this->getStudentScholarship($record->student_id);
 
             // dt-data array
             $row = array();
@@ -408,26 +411,31 @@ class Fees_model extends MY_Model
             $row[] = $record->roll;
             $row[] = $record->mobileno;
             // getting fees group list
-            $feegroup = $this->getfeeGroup($record->enroll_id);
+            $feegroup = $this->getfeeGroup($record->student_id);
             $groupList = '';
             foreach ($feegroup as $key => $value) {
                 $groupList .= "- " . $value['name'] . "<br>";
             }
             $row[] = $groupList;
-            // fees status
-            $labelmode = '';
-            $status = $this->getInvoiceStatus($record->enroll_id)['status'];
-            if ($status == 'unpaid') {
-                $status = translate('unpaid');
-                $labelmode = 'label-danger-custom';
-            } elseif ($status == 'partly') {
-                $status = translate('partly_paid');
-                $labelmode = 'label-info-custom';
-            } elseif ($status == 'total') {
-                $status = translate('total_paid');
-                $labelmode = 'label-success-custom';
+            // fees status — scholarship overrides paid/unpaid display
+            if (!empty($scholarship)) {
+                $statusLabel = "<span class='value label label-scholarship'><i class='fas fa-graduation-cap'></i> " . htmlspecialchars($scholarship['scholarship_name']) . "</span>";
+            } else {
+                $labelmode = '';
+                $status = $this->getInvoiceStatus($record->student_id)['status'];
+                if ($status == 'unpaid') {
+                    $status = translate('unpaid');
+                    $labelmode = 'label-danger-custom';
+                } elseif ($status == 'partly') {
+                    $status = translate('partly_paid');
+                    $labelmode = 'label-info-custom';
+                } elseif ($status == 'total') {
+                    $status = translate('total_paid');
+                    $labelmode = 'label-success-custom';
+                }
+                $statusLabel = "<span class='value label " . $labelmode . " '>" . $status . "</span>";
             }
-            $row[] = "<span class='value label " . $labelmode . " '>" . $status . "</span>";
+            $row[] = $statusLabel;
             $row[] = $actions;
 
             $data[] = $row;
@@ -460,7 +468,7 @@ class Fees_model extends MY_Model
             $this->datatables->from('fee_allocation as fa');
             $this->datatables->join('fee_payment_history as h', 'h.allocation_id = fa.id and h.type_id = ' . $this->db->escape($fee_feetype_id), 'left');
             $this->datatables->join('fee_groups_details as gd', 'gd.fee_groups_id = fa.group_id and gd.fee_type_id =' . $this->db->escape($fee_feetype_id), 'inner');
-            $this->datatables->join('enroll as e', 'e.id = fa.student_id', 'inner');
+            $this->datatables->join('enroll as e', 'e.student_id = fa.student_id', 'inner');
             $this->datatables->where('fa.group_id', $feegroup_id);
             $this->datatables->where('fa.session_id', $get_session_id);
             $this->datatables->group_by('fa.student_id');
@@ -484,8 +492,7 @@ class Fees_model extends MY_Model
         $this->db->select('fa.id as allocation_id,sum(gd.amount + fa.prev_due) as total_fees,MIN(gd.due_date) as due_date,e.id as enroll_id,e.student_id,e.roll,s.first_name,s.last_name,s.register_no,s.mobileno,c.name as class_name,se.name as section_name');
         $this->db->from('fee_allocation as fa');
         $this->db->join('fee_groups_details as gd', 'gd.fee_groups_id = fa.group_id', 'left');
-        // JOIN on student_id only — no session_id condition so promoted students are not silently dropped.
-        $this->db->join('enroll as e', 'e.id = fa.student_id', 'inner');
+        $this->db->join('enroll as e', 'e.student_id = fa.student_id', 'inner');
         $this->db->join('student as s', 's.id = e.student_id', 'left');
         $this->db->join('class as c', 'c.id = e.class_id', 'left');
         $this->db->join('section as se', 'se.id = e.section_id', 'left');
@@ -503,7 +510,7 @@ class Fees_model extends MY_Model
         $this->db->order_by('e.id', 'asc');
         $result = $this->db->get()->result_array();
         foreach ($result as $key => $value) {
-            $result[$key]['payment'] = $this->getPaymentDetails($value['enroll_id']);
+            $result[$key]['payment'] = $this->getPaymentDetails($value['student_id']);
         }
         return $result;
     }
@@ -525,13 +532,12 @@ class Fees_model extends MY_Model
         $this->db->from('fee_payment_history as h');
         $this->db->join('fee_allocation as fa', 'fa.id = h.allocation_id', 'inner');
         $this->db->join('fees_type as ft', 'ft.id = h.type_id', 'left');
-        $this->db->join('enroll as e', 'e.id = fa.student_id', 'inner');
+        $this->db->join('enroll as e', 'e.student_id = fa.student_id', 'inner');
         $this->db->join('student as s', 's.id = e.student_id', 'inner');
         $this->db->join('class as c', 'c.id = e.class_id', 'left');
         $this->db->join('section as se', 'se.id = e.section_id', 'left');
         $this->db->join('payment_types as pt', 'pt.id = h.pay_via', 'left');
         $this->db->where('fa.session_id', $sessionID);
-        $this->db->where('e.session_id', $sessionID);
         $this->db->where('h.date  >=', $start);
         $this->db->where('h.date <=', $end);
         $this->db->where('e.branch_id', $branchID);
@@ -622,7 +628,7 @@ class Fees_model extends MY_Model
             $this->db->join('fee_allocation as fa', 'fa.id = h.allocation_id', 'inner');
             $this->db->join('fees_type as ft', 'ft.id = h.type_id', 'left');
             $this->db->join('fee_groups_details as gd', 'gd.fee_groups_id = fa.group_id and gd.fee_type_id = h.type_id', 'left');
-            $this->db->join('enroll as e', 'e.id = fa.student_id and e.session_id = ' . $this->db->escape($sessionID), 'inner');
+            $this->db->join('enroll as e', 'e.student_id = fa.student_id', 'inner');
             $this->db->join('student as s', 's.id = e.student_id', 'inner');
             $this->db->join('payment_types as pt', 'pt.id = h.pay_via', 'left');
             $this->db->where('fa.session_id', $sessionID);
@@ -1383,7 +1389,7 @@ class Fees_model extends MY_Model
         $this->db->from('fee_payment_history h');
         $this->db->join('fee_allocation fa', 'fa.id = h.allocation_id', 'inner');
         $this->db->join('fees_type ft', 'ft.id = h.type_id', 'left');
-        $this->db->join('enroll e', 'e.id = fa.student_id', 'inner');
+        $this->db->join('enroll e', 'e.student_id = fa.student_id', 'inner');
         $this->db->join('student s', 's.id = e.student_id', 'inner');
         $this->db->join('class c', 'c.id = e.class_id', 'left');
         $this->db->join('section sec', 'sec.id = e.section_id', 'left');
@@ -1418,7 +1424,7 @@ class Fees_model extends MY_Model
         ", false);
         $this->db->from('fee_payment_history h');
         $this->db->join('fee_allocation fa', 'fa.id = h.allocation_id', 'inner');
-        $this->db->join('enroll e', 'e.id = fa.student_id', 'inner');
+        $this->db->join('enroll e', 'e.student_id = fa.student_id', 'inner');
         $this->db->where('fa.session_id', $sessionID);
         $this->db->where('e.branch_id', $branchID);
         $this->db->where('h.date >=', $start);
@@ -1426,5 +1432,83 @@ class Fees_model extends MY_Model
         $this->db->group_by("DATE_FORMAT(h.date, '{$dateFmt}')");
         $this->db->order_by("period ASC");
         return $this->db->get()->result_array();
+    }
+
+    // ── Scholarship methods ───────────────────────────────────────────────────
+
+    public function getScholarshipTypes($branchID = 0)
+    {
+        return $this->db->select('st.*')
+            ->from('scholarship_types st')
+            ->group_start()
+                ->where('st.branch_id', 0)
+                ->or_where('st.branch_id', (int)$branchID)
+            ->group_end()
+            ->order_by('st.name')
+            ->get()->result_array();
+    }
+
+    public function getStudentScholarship($student_id, $session_id = null)
+    {
+        if ($session_id === null) {
+            $session_id = get_session_id();
+        }
+        return $this->db->select('ss.*, st.name as scholarship_name')
+            ->from('student_scholarship ss')
+            ->join('scholarship_types st', 'st.id = ss.scholarship_type_id', 'left')
+            ->where('ss.student_id', (int)$student_id)
+            ->where('ss.session_id', (int)$session_id)
+            ->get()->row_array();
+    }
+
+    public function assignScholarship($student_id, $type_id, $session_id, $branch_id, $notes = '')
+    {
+        $existing = $this->getStudentScholarship($student_id, $session_id);
+        if ($existing) {
+            $this->db->where('id', $existing['id'])
+                ->update('student_scholarship', [
+                    'scholarship_type_id' => (int)$type_id,
+                    'notes'               => $notes,
+                    'updated_at'          => date('Y-m-d H:i:s'),
+                ]);
+        } else {
+            $this->db->insert('student_scholarship', [
+                'student_id'          => (int)$student_id,
+                'scholarship_type_id' => (int)$type_id,
+                'session_id'          => (int)$session_id,
+                'branch_id'           => (int)$branch_id,
+                'notes'               => $notes,
+            ]);
+        }
+    }
+
+    public function removeScholarship($student_id, $session_id)
+    {
+        $this->db->where('student_id', (int)$student_id)
+            ->where('session_id', (int)$session_id)
+            ->delete('student_scholarship');
+    }
+
+    public function saveScholarshipType($data)
+    {
+        if (!empty($data['id'])) {
+            $this->db->where('id', (int)$data['id'])->update('scholarship_types', [
+                'name'        => $data['name'],
+                'description' => $data['description'] ?? '',
+                'branch_id'   => (int)$data['branch_id'],
+            ]);
+        } else {
+            $this->db->insert('scholarship_types', [
+                'name'        => $data['name'],
+                'description' => $data['description'] ?? '',
+                'branch_id'   => (int)$data['branch_id'],
+            ]);
+            return $this->db->insert_id();
+        }
+    }
+
+    public function deleteScholarshipType($id)
+    {
+        $this->db->where('id', (int)$id)->delete('scholarship_types');
     }
 }
