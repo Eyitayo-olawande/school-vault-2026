@@ -39,9 +39,9 @@ class Student_promotion extends Admin_Controller
             // Batch-fetch all outstanding balances in one query (replaces N+1 per-student calls)
             $school = $this->fees_model->get('branch', ['id' => $branchID], true);
             $this->data['school']    = $school;
-            $enrollIDs = array_column($students, 'id');
+            $studentIDs = array_column($students, 'student_id');
             $this->data['outstanding_balances'] = $this->fees_model->getOutstandingBalancesBatch(
-                $enrollIDs, get_session_id(), (int)($school['due_with_fine'] ?? 0)
+                $studentIDs, get_session_id(), (int)($school['due_with_fine'] ?? 0)
             );
         }
         $this->data['branch_id'] = $branchID;

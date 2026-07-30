@@ -152,7 +152,7 @@
 
 								if (count($students)) {
 									foreach($students as $key => $row):
-										$enrollID   = $row['id'];
+										$enrollID   = $row['student_id'];
 										$balanceData = $outstandingBalances[$enrollID] ?? ['total' => 0, 'breakdown' => []];
 										$dueAmount   = $balanceData['total'];
 										$breakdown   = $balanceData['breakdown'];
