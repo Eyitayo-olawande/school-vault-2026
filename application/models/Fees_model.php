@@ -661,6 +661,37 @@ class Fees_model extends MY_Model
         return $this->db->get()->result_array();
     }
 
+    public function has_same_type_allocation($studentId, $groupId, $sessionId)
+    {
+        $group = $this->db->select('name')->where('id', $groupId)->get('fee_groups')->row_array();
+        if (empty($group)) return false;
+        $name = $group['name'];
+
+        $prefix = strstr($name, '(20', true);
+        if ($prefix === false) return false;
+
+        $upperPrefix = strtoupper($prefix);
+        foreach (['BUS', 'MEAL', 'TRANSPORT'] as $exempt) {
+            if (strpos($upperPrefix, $exempt) !== false) return false;
+        }
+
+        $conflict = $this->db->query("
+            SELECT fg.name
+            FROM fee_allocation fa
+            INNER JOIN fee_groups fg ON fg.id = fa.group_id
+            WHERE fa.student_id = ?
+              AND fa.session_id  = ?
+              AND fa.group_id   != ?
+              AND fg.name LIKE ?
+              AND fg.name NOT LIKE '%BUS%'
+              AND fg.name NOT LIKE '%MEAL%'
+              AND fg.name NOT LIKE '%TRANSPORT%'
+            LIMIT 1
+        ", [$studentId, $sessionId, $groupId, $prefix . '%'])->row_array();
+
+        return $conflict ? $conflict['name'] : false;
+    }
+
     public function reminderSave($data = array())
     {
         $arrayData = array(

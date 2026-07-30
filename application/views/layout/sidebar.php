@@ -326,6 +326,16 @@
                                     <span><i class="fas fa-caret-right" aria-hidden="true"></i><?=translate('multiple_import')?></span>
                                 </a>
                             </li>
+                            <li class="<?php if ($sub_page == 'student/dva_multi_add') echo 'nav-active';?>">
+                                <a href="<?=base_url('student/dva_csv_import')?>">
+                                    <span><i class="fas fa-caret-right" aria-hidden="true"></i>DVA Account Import</span>
+                                </a>
+                            </li>
+                            <li class="<?php if ($sub_page == 'student/allocation_multi_add') echo 'nav-active';?>">
+                                <a href="<?=base_url('student/allocation_csv_import')?>">
+                                    <span><i class="fas fa-caret-right" aria-hidden="true"></i>Fee Allocation Import</span>
+                                </a>
+                            </li>
                         <?php } if(get_permission('student_category', 'is_view')){ ?>
                             <li class="<?php if ($sub_page == 'student/category') echo 'nav-active';?>">
                                 <a href="<?=base_url('student/category')?>">
