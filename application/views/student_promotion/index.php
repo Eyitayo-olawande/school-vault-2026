@@ -73,26 +73,13 @@
 							<div class="alert alert-subl mb-lg">
 								<strong>Instructions:</strong><br/>
 								1. Roll field shows previous roll — enter a new roll for the promoted session if needed.<br/>
-								2. Outstanding fees are recalculated from the database at promotion time — per-term breakdown is carried forward automatically.<br/>
+								2. Outstanding fees shown are for reference only — they are not carried forward automatically.<br/>
 								3. Transport fee assignments are copied to the new session automatically.<br/>
-								4. Uncheck <em>Carry Forward Due</em> to waive all outstanding balances (not reversible).<br/>
-								5. <em>Running</em> keeps the student in the same class — only the session changes.<br/>
-								6. <em>Leave / Add Alumni</em> marks the student as graduated.
+								4. <em>Running</em> keeps the student in the same class — only the session changes.<br/>
+								5. <em>Leave / Add Alumni</em> marks the student as graduated.
 							</div>
 						</div>
 
-						<div class="col-md-12 mb-md">
-							<div style="background:#fff8e1; border:2px solid #f0ad4e; border-left-width:5px; border-radius:4px; padding:12px 16px; display:inline-block; min-width:340px;">
-								<div class="checkbox-replace" style="margin:0;">
-									<label class="i-checks" style="margin:0; font-weight:700; font-size:1.05em; cursor:pointer;">
-										<input type="checkbox" name="due_forward" id="due_forward" checked><i></i>
-										<i class="fas fa-exclamation-triangle" style="color:#e6a817; margin-left:6px; margin-right:4px;"></i>
-										Carry Forward Due in Next Session
-									</label>
-								</div>
-								<p class="text-muted" style="margin:6px 0 0 28px; font-size:0.85em;">Uncheck this to waive all outstanding balances — this cannot be undone.</p>
-							</div>
-						</div>
 
 						<div class="col-md-4">
 							<div class="form-group">
