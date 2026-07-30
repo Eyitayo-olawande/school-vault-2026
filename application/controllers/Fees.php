@@ -613,26 +613,40 @@ class Fees extends Admin_Controller
             access_denied();
         }
         $branchID = $this->application_model->get_branch_id();
-        if ($_POST) {
+        if ($this->input->post('search')) {
             if (is_superadmin_loggedin()) {
                 $this->form_validation->set_rules('branch_id', translate('branch'), 'trim|required');
             }
-            $this->form_validation->set_rules('class_id', translate('class'), 'trim');
-            $this->form_validation->set_rules('section_id', translate('section'), 'trim');
+            $this->form_validation->set_rules('class_id', translate('class'), 'trim|required');
             if ($this->form_validation->run() == true) {
-                $export_title = get_type_name_by_id('branch', $branchID) . ' - ' . translate('invoice_list');
-                $array = array('status' => 'success', 'export_title' => $export_title,'error' => '');
-            } else {
-                $error = $this->form_validation->error_array();
-                $array = array('status' => 'fail','error' => $error);
-                
+                $classID   = $this->input->post('class_id');
+                $sectionID = $this->input->post('section_id');
+                $this->db->select('e.id as enroll_id, e.student_id, e.roll, s.first_name, s.last_name, s.register_no, s.mobileno, c.name as class_name, se.name as section_name');
+                $this->db->from('fee_allocation as fa');
+                $this->db->join('enroll as e', 'e.student_id = fa.student_id', 'inner');
+                $this->db->join('student as s', 's.id = e.student_id', 'inner');
+                $this->db->join('class as c', 'c.id = e.class_id', 'left');
+                $this->db->join('section as se', 'se.id = e.section_id', 'left');
+                $this->db->where('fa.session_id', get_session_id());
+                $this->db->where('e.branch_id', $branchID);
+                $this->db->where('e.class_id', $classID);
+                if (!empty($sectionID)) {
+                    $this->db->where('e.section_id', $sectionID);
+                }
+                $this->db->group_by('fa.student_id');
+                $this->db->order_by('s.first_name', 'asc');
+                $rows = $this->db->get()->result_array();
+                foreach ($rows as &$row) {
+                    $row['feegroup'] = $this->fees_model->getfeeGroup($row['student_id']);
+                }
+                $this->data['invoicelist'] = $rows;
+                $this->data['class_id']    = $classID;
+                $this->data['section_id']  = $sectionID;
             }
-            echo json_encode($array);
-            exit();
         }
         $this->data['branch_id'] = $branchID;
-        $this->data['title'] = translate('payments_history');
-        $this->data['sub_page'] = 'fees/invoice_list';
+        $this->data['title']     = translate('payments_history');
+        $this->data['sub_page']  = 'fees/invoice_list';
         $this->data['main_menu'] = 'fees';
         $this->load->view('layout/index', $this->data);
     }
@@ -777,26 +791,41 @@ class Fees extends Admin_Controller
             access_denied();
         }
         $branchID = $this->application_model->get_branch_id();
-        if ($_POST) {
-                if (is_superadmin_loggedin()) {
-                    $this->form_validation->set_rules('branch_id', translate('branch'), 'trim|required');
+        if ($this->input->post('search')) {
+            if (is_superadmin_loggedin()) {
+                $this->form_validation->set_rules('branch_id', translate('branch'), 'trim|required');
+            }
+            $this->form_validation->set_rules('class_id', translate('class'), 'trim|required');
+            if ($this->form_validation->run() == true) {
+                $classID   = $this->input->post('class_id');
+                $sectionID = $this->input->post('section_id');
+                $term      = (string) $this->input->post('term');
+                $rawList   = $this->fees_model->getDueReport($classID, $sectionID, $term);
+                $invoicelist = [];
+                foreach ($rawList as $row) {
+                    $row['full_amount']    = $row['total_fees'];
+                    $row['prev_due']       = 0;
+                    $row['total_amount']   = $row['payment']['total_paid'];
+                    $row['total_discount'] = $row['payment']['total_discount'];
+                    $row['feegroup']       = $this->fees_model->getfeeGroup($row['student_id']);
+                    $invoicelist[] = $row;
                 }
-                $this->form_validation->set_rules('class_id', translate('class'), 'trim|required');
-                $this->form_validation->set_rules('section_id', translate('section'), 'trim|required');
-                $this->form_validation->set_rules('fees_type', translate('fees_type'), 'trim|required');
-                if ($this->form_validation->run() == true) {
-                    $export_title = get_type_name_by_id('branch', $branchID) . ' - ' . translate('due_invoice') . " " . translate('list');
-                    $array = array('status' => 'success', 'export_title' => $export_title,'error' => '');
-                } else {
-                    $error = $this->form_validation->error_array();
-                    $array = array('status' => 'fail','error' => $error);
-                }
-                echo json_encode($array);
-                exit();
+                $this->data['invoicelist'] = $invoicelist;
+                $this->data['session_id']  = $this->input->post('session_id');
+                $this->data['term']        = $term;
+                $this->data['class_id']    = $classID;
+                $this->data['section_id']  = $sectionID;
+            }
+        }
+        if (!isset($this->data['session_id'])) {
+            $this->data['session_id'] = get_session_id();
+        }
+        if (!isset($this->data['term'])) {
+            $this->data['term'] = '';
         }
         $this->data['branch_id'] = $branchID;
-        $this->data['title'] = translate('payments_history');
-        $this->data['sub_page'] = 'fees/due_invoice';
+        $this->data['title']     = translate('payments_history');
+        $this->data['sub_page']  = 'fees/due_invoice';
         $this->data['main_menu'] = 'fees';
         $this->load->view('layout/index', $this->data);
     }

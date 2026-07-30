@@ -45,7 +45,7 @@
 			<footer class="panel-footer">
 				<div class="row">
 					<div class="col-md-offset-10 col-md-2">
-						<button type="submit" name="search" value="1" class="btn btn-default btn-block"> <i class="fas fa-filter"></i> <?=translate('filter')?></button>
+						<button type="submit" name="search" value="1" class="btn btn-default btn-block"><i class="fas fa-filter"></i> <?=translate('filter')?></button>
 					</div>
 				</div>
 			</footer>
@@ -95,7 +95,7 @@
 							<tr>
 								<td class="hidden-print checked-area hidden-print">
 									<div class="checkbox-replace">
-										<label class="i-checks"><input type="checkbox" name="student_id[]" value="<?=$row['student_id']?>"><i></i></label>
+										<label class="i-checks"><input type="checkbox" name="student_id[]" value="<?=$row['enroll_id']?>"><i></i></label>
 									</div>
 								</td>
 								<td><?php echo $row['first_name'] . ' ' . $row['last_name'];?></td>
@@ -128,7 +128,7 @@
 								<td>
 									<!-- collect payment -->
 								<?php if (get_permission('collect_fees', 'is_add')) { ?>
-									<a href="<?php echo base_url('fees/invoice/' . $row['student_id']);?>" class="btn btn-default btn-circle">
+									<a href="<?=base_url('fees/invoice/' . $row['enroll_id'])?>" class="btn btn-default btn-circle">
 										<i class="far fa-arrow-alt-circle-right"></i> <?=translate('collect')?>
 									</a>
 								<?php } ?>
