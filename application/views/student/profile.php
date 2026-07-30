@@ -588,7 +588,7 @@ $feesActive = isset($student['fees_active']) ? (int)$student['fees_active'] : 1;
 										// Across every session, not just the active one: after promotion a student's
 											// earlier fees -- including fully paid ones -- sit under a previous
 											// session_id and would otherwise vanish from this page.
-											$allocations   = $this->fees_model->getInvoiceDetailsAllSessions($student['enrollid']);
+											$allocations   = $this->fees_model->getInvoiceDetailsAllSessions($student['id']);
 											$activeSession = get_session_id();
 											$shownSession  = null;
 										if (!empty($allocations)) {

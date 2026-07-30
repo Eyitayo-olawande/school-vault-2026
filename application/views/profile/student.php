@@ -343,7 +343,7 @@ if ($last_name['status'] == 1 || $gender['status'] == 1 || $blood_group['status'
 										$total_paid = 0;
 										$total_balance = 0;
 										$total_amount = 0;
-										$allocations = $this->fees_model->getInvoiceDetailsAllSessions($student['enrollid']);
+										$allocations = $this->fees_model->getInvoiceDetailsAllSessions($student['id']);
 										$activeSession = get_session_id();
 										$shownSession  = null;
 										if (!empty($allocations)) {
