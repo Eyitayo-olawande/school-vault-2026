@@ -1,5 +1,5 @@
 ---
 deployment:
   tasks:
-    - export DEPLOYPATH=/home/clemmyschools/svlive.clemmyschools.com/
+    - export DEPLOYPATH=/home/clemmyschools/staging.clemmyschools.com/
     - /usr/local/cpanel/php/installers/deploy.php
