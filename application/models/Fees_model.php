@@ -157,7 +157,7 @@ class Fees_model extends MY_Model
 
     public function getStudentAllocationList($classID = '', $sectionID = '', $groupID = '', $branchID = '')
     {
-        $sql = "SELECT e.*, s.photo, CONCAT_WS(' ',s.first_name, s.last_name) as fullname, s.gender, s.register_no, s.parent_id, s.email, s.mobileno, IFNULL(fa.id, 0) as allocation_id FROM enroll as e INNER JOIN student as s ON e.student_id = s.id LEFT JOIN login_credential as l ON l.user_id = s.id AND l.role = '7' LEFT JOIN fee_allocation as fa ON fa.student_id = e.id AND fa.group_id = " . $this->db->escape($groupID) . " AND fa.session_id= " . $this->db->escape(get_session_id()) . " WHERE e.class_id = " . $this->db->escape($classID) . " AND e.branch_id = " . $this->db->escape($branchID) . " AND e.session_id = " . $this->db->escape(get_session_id());
+        $sql = "SELECT e.*, s.photo, CONCAT_WS(' ',s.first_name, s.last_name) as fullname, s.gender, s.register_no, s.parent_id, s.email, s.mobileno, IFNULL(fa.id, 0) as allocation_id FROM enroll as e INNER JOIN student as s ON e.student_id = s.id LEFT JOIN login_credential as l ON l.user_id = s.id AND l.role = '7' LEFT JOIN fee_allocation as fa ON fa.student_id = e.student_id AND fa.group_id =" . $this->db->escape($groupID) . " AND fa.session_id= " . $this->db->escape(get_session_id()) . " WHERE e.class_id = " . $this->db->escape($classID) . " AND e.branch_id = " . $this->db->escape($branchID) . " AND e.session_id = " . $this->db->escape(get_session_id());
         if ($sectionID != 'all') {
             $sql .= " AND e.section_id =" . $this->db->escape($sectionID);
         }
@@ -176,11 +176,16 @@ class Fees_model extends MY_Model
         $balance = $this->db->query($sql)->row_array();
         $invNo = empty($balance['inv_no']) ? 0 : str_pad($balance['inv_no'], 4, '0', STR_PAD_LEFT);
 
+        // transport_fee_details.enroll_id stores enroll.id (PK), not student.id.
+        // $enrollID is student.id, so look up the actual enroll PK for transport queries.
+        $enrollRow = $this->db->select('id')->where('student_id', $enrollID)->get('enroll')->row();
+        $actualEnrollID = $enrollRow ? $enrollRow->id : 0;
+
         // calculation total transport fee
         $this->db->select("IFNULL(SUM(transport_stoppage_point.route_fare), 0) as amount");
         $this->db->from('transport_fee_details');
         $this->db->join('transport_stoppage_point', 'transport_stoppage_point.id = transport_fee_details.stoppage_point_id', 'inner');
-        $this->db->where('transport_fee_details.enroll_id', $enrollID);
+        $this->db->where('transport_fee_details.enroll_id', $actualEnrollID);
         $trans_amount = $this->db->get()->row()->amount;
 
         // calculation payment history
@@ -191,7 +196,7 @@ class Fees_model extends MY_Model
         $this->db->where("fee_allocation.student_id", $enrollID);
         $this->db->where("fee_allocation.session_id", $sessionID);
         $this->db->or_group_start();
-        $this->db->where("transport_fee_details.enroll_id", $enrollID);
+        $this->db->where("transport_fee_details.enroll_id", $actualEnrollID);
         $this->db->group_end();
         $paid = $this->db->get()->row_array();
 
@@ -1082,7 +1087,7 @@ class Fees_model extends MY_Model
                  - IFNULL(fph_sum.paid, 0))                        AS outstanding
             FROM fee_allocation fa
             {$termJoin}
-            INNER JOIN enroll      e   ON e.id         = fa.student_id
+            INNER JOIN enroll      e   ON e.student_id = fa.student_id
             INNER JOIN student     s   ON s.id         = e.student_id
             INNER JOIN class       c   ON c.id         = e.class_id
             INNER JOIN section     sec ON sec.id       = e.section_id
@@ -1142,7 +1147,7 @@ class Fees_model extends MY_Model
                   - IFNULL(SUM(CASE WHEN fph.pay_date <= {$dateBEsc} THEN fph.net ELSE 0 END),0) AS balance_b
             FROM fee_allocation fa
             {$termJoin}
-            INNER JOIN enroll  e   ON e.id   = fa.student_id
+            INNER JOIN enroll  e   ON e.student_id = fa.student_id
             INNER JOIN student s   ON s.id   = e.student_id
             INNER JOIN class   c   ON c.id   = e.class_id
             INNER JOIN section sec ON sec.id = e.section_id
@@ -1201,7 +1206,7 @@ class Fees_model extends MY_Model
                 FROM   fee_payment_history
                 GROUP  BY allocation_id
             ) fph_sum ON fph_sum.allocation_id = fa.id
-            INNER JOIN enroll   e   ON e.id   = fa.student_id
+            INNER JOIN enroll   e   ON e.student_id = fa.student_id
             INNER JOIN student  s   ON s.id   = e.student_id
             INNER JOIN class    c   ON c.id   = e.class_id
             INNER JOIN section  sec ON sec.id = e.section_id
@@ -1254,7 +1259,7 @@ class Fees_model extends MY_Model
                   {$termWhere}
                 GROUP BY fa.student_id
             ) stu
-            INNER JOIN enroll e ON e.id = stu.student_id
+            INNER JOIN enroll e ON e.student_id = stu.student_id
             INNER JOIN class  c ON c.id = e.class_id
             WHERE e.branch_id = {$branchEsc}
               {$classWhere}
@@ -1314,7 +1319,7 @@ class Fees_model extends MY_Model
                 SUM(CASE WHEN fg.name LIKE '3RD TERM%' THEN IFNULL(fa.prev_due,0) ELSE 0 END) AS t3_prev_due,
                 SUM(CASE WHEN fg.name LIKE '3RD TERM%' THEN IFNULL(fph.paid,0) ELSE 0 END)    AS t3_paid
             FROM fee_allocation fa
-            INNER JOIN enroll  e   ON e.id   = fa.student_id
+            INNER JOIN enroll  e   ON e.student_id = fa.student_id
             INNER JOIN student s   ON s.id   = e.student_id
             INNER JOIN class   c   ON c.id   = e.class_id
             INNER JOIN section sec ON sec.id = e.section_id
