@@ -82,8 +82,15 @@
 						</div>
 
 						<div class="col-md-12 mb-md">
-							<div class="checkbox-replace">
-								<label class="i-checks"><input type="checkbox" name="due_forward" id="due_forward" checked><i></i> Carry Forward Due in Next Session</label>
+							<div style="background:#fff8e1; border:2px solid #f0ad4e; border-left-width:5px; border-radius:4px; padding:12px 16px; display:inline-block; min-width:340px;">
+								<div class="checkbox-replace" style="margin:0;">
+									<label class="i-checks" style="margin:0; font-weight:700; font-size:1.05em; cursor:pointer;">
+										<input type="checkbox" name="due_forward" id="due_forward" checked><i></i>
+										<i class="fas fa-exclamation-triangle" style="color:#e6a817; margin-left:6px; margin-right:4px;"></i>
+										Carry Forward Due in Next Session
+									</label>
+								</div>
+								<p class="text-muted" style="margin:6px 0 0 28px; font-size:0.85em;">Uncheck this to waive all outstanding balances — this cannot be undone.</p>
 							</div>
 						</div>
 
