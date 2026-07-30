@@ -193,16 +193,16 @@ class Student_promotion extends Admin_Controller
                                 $school    = $this->fees_model->get('branch', ['id' => $branchID], true);
                                 $with_fine = (int)($school['due_with_fine'] ?? 0);
                                 $balances  = $this->fees_model->getOutstandingBalancesBatch(
-                                    [$old_enroll_id], $pre_session_id, $with_fine
+                                    [$student_id], $pre_session_id, $with_fine
                                 );
-                                $studentBalance = $balances[$old_enroll_id] ?? null;
+                                $studentBalance = $balances[$student_id] ?? null;
 
                                 if (!empty($studentBalance) && $studentBalance['total'] > 0) {
                                     $promotion_history['prev_due'] = $studentBalance['total'];
                                     $this->fees_model->carryForwardDue([
                                         'branch_id'  => $branchID,
                                         'session_id' => $promote_session_id,
-                                        'student_id' => $enroll_id,
+                                        'student_id' => $student_id,
                                         'prev_due'   => $studentBalance['total'],
                                         'due_date'   => date('Y-m-d', strtotime("+$due_days Days")),
                                         'breakdown'  => $studentBalance['breakdown'],

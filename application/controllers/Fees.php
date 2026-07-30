@@ -457,14 +457,14 @@ class Fees extends Admin_Controller
 
     /**
      * Fire DVA fee-allocation SMS if the student has a dedicated virtual account.
-     * $studentId here is enroll.id (fee_allocation.student_id = enroll.id).
+     * $studentId here is student.id (fee_allocation.student_id = student.id).
      */
-    private function _triggerDvaAllocationSms($enrollId, $groupId, $branchID)
+    private function _triggerDvaAllocationSms($studentId, $groupId, $branchID)
     {
-        $enroll = $this->db->select('student_id')->where('id', $enrollId)->get('enroll')->row_array();
+        $enroll = $this->db->select('student_id')->where('student_id', $studentId)->limit(1)->get('enroll')->row_array();
         if (empty($enroll)) return;
 
-        $hasDva = $this->db->where('user_id', $enroll['student_id'])
+        $hasDva = $this->db->where('user_id', $studentId)
                            ->where('account_number IS NOT NULL', null, false)
                            ->count_all_results('dedicated_virtual_account');
         if ($hasDva == 0) return;
@@ -2042,7 +2042,7 @@ class Fees extends Admin_Controller
                 IFNULL(SUM(fgd.amount + fa.prev_due), 0)
                   - IFNULL(SUM(fph.amount + fph.discount), 0)                    AS outstanding
             FROM fee_allocation fa
-            INNER JOIN enroll e     ON e.id  = fa.student_id
+            INNER JOIN enroll e     ON e.student_id = fa.student_id
             LEFT  JOIN fee_groups fg ON fg.id = fa.group_id
             LEFT  JOIN fee_groups_details fgd ON fgd.fee_groups_id = fa.group_id
             LEFT  JOIN fee_payment_history fph ON fph.allocation_id = fa.id AND fph.status = 'paid'
@@ -2060,7 +2060,7 @@ class Fees extends Admin_Controller
                 SELECT IFNULL(SUM(fph.amount + fph.discount), 0) AS collected
                 FROM fee_payment_history fph
                 INNER JOIN fee_allocation fa ON fa.id = fph.allocation_id
-                INNER JOIN enroll e           ON e.id  = fa.student_id
+                INNER JOIN enroll e           ON e.student_id = fa.student_id
                 LEFT  JOIN fee_groups fg      ON fg.id = fa.group_id
                 WHERE {$bW}{$termW}{$dateW} AND fph.status = 'paid'
             ")->row_array();
@@ -2074,7 +2074,7 @@ class Fees extends Admin_Controller
             SELECT COUNT(*) AS cnt FROM (
                 SELECT fa.student_id
                 FROM fee_allocation fa
-                INNER JOIN enroll e     ON e.id  = fa.student_id
+                INNER JOIN enroll e     ON e.student_id = fa.student_id
                 LEFT  JOIN fee_groups fg ON fg.id = fa.group_id
                 LEFT  JOIN fee_groups_details fgd ON fgd.fee_groups_id = fa.group_id
                 LEFT  JOIN fee_payment_history fph ON fph.allocation_id = fa.id AND fph.status = 'paid'
@@ -2093,7 +2093,7 @@ class Fees extends Admin_Controller
                    IFNULL(SUM(fgd.amount + fa.prev_due), 0)
                      - IFNULL(SUM(fph.amount + fph.discount), 0) AS balance
             FROM fee_allocation fa
-            INNER JOIN enroll e     ON e.id  = fa.student_id
+            INNER JOIN enroll e     ON e.student_id = fa.student_id
             INNER JOIN student s    ON s.id  = e.student_id
             INNER JOIN class c      ON c.id  = e.class_id
             LEFT  JOIN fee_groups fg ON fg.id = fa.group_id
@@ -2114,7 +2114,7 @@ class Fees extends Admin_Controller
                    fph.amount + fph.discount AS amount
             FROM fee_payment_history fph
             INNER JOIN fee_allocation fa ON fa.id  = fph.allocation_id
-            INNER JOIN enroll e          ON e.id   = fa.student_id
+            INNER JOIN enroll e          ON e.student_id = fa.student_id
             INNER JOIN student s         ON s.id   = e.student_id
             INNER JOIN fees_type ft      ON ft.id  = fph.type_id
             LEFT  JOIN fee_groups fg     ON fg.id  = fa.group_id
@@ -2129,7 +2129,7 @@ class Fees extends Admin_Controller
                    SUM(fph.amount + fph.discount)  AS net
             FROM fee_payment_history fph
             INNER JOIN fee_allocation fa ON fa.id = fph.allocation_id
-            INNER JOIN enroll e          ON e.id  = fa.student_id
+            INNER JOIN enroll e          ON e.student_id = fa.student_id
             LEFT  JOIN fee_groups fg     ON fg.id = fa.group_id
             WHERE {$bW}{$termW}{$dateW} AND fph.status = 'paid'
             GROUP BY DATE_FORMAT(fph.date, '%Y-%m')
@@ -2180,7 +2180,7 @@ class Fees extends Admin_Controller
                    SUM(fph.amount + fph.discount)
                      - SUM(fgd.amount + fa.prev_due)      AS overpaid
             FROM fee_allocation fa
-            INNER JOIN enroll e  ON e.id  = fa.student_id
+            INNER JOIN enroll e  ON e.student_id = fa.student_id
             INNER JOIN student s ON s.id  = e.student_id
             INNER JOIN class   c ON c.id  = e.class_id
             LEFT JOIN fee_groups_details  fgd ON fgd.fee_groups_id = fa.group_id
@@ -2198,7 +2198,7 @@ class Fees extends Admin_Controller
                    sec.name AS section_name,
                    SUM(fgd.amount + fa.prev_due) AS invoiced
             FROM fee_allocation fa
-            INNER JOIN enroll  e   ON e.id   = fa.student_id
+            INNER JOIN enroll  e   ON e.student_id = fa.student_id
             INNER JOIN student s   ON s.id   = e.student_id
             INNER JOIN class   c   ON c.id   = e.class_id
             INNER JOIN section sec ON sec.id  = e.section_id
@@ -2276,7 +2276,7 @@ class Fees extends Admin_Controller
                     INNER JOIN fee_groups_details fgd ON fgd.fee_groups_id = fa.group_id
                     INNER JOIN fees_type ft ON ft.id = fgd.fee_type_id
                     LEFT JOIN fee_payment_history fph ON fph.allocation_id = fa.id AND fph.type_id = fgd.fee_type_id
-                    WHERE fa.student_id = (SELECT id FROM enroll WHERE student_id = {$studentID} LIMIT 1)
+                    WHERE fa.student_id = {$studentID}
                       AND fa.session_id = {$sessionID}
                     GROUP BY fa.id, fgd.fee_type_id
                     ORDER BY fa.group_id, ft.name
@@ -2295,7 +2295,7 @@ class Fees extends Admin_Controller
                     INNER JOIN fee_allocation fa ON fa.id = fph.allocation_id
                     LEFT JOIN fees_type ft ON ft.id = fph.type_id
                     LEFT JOIN payment_types pt ON pt.id = fph.pay_via
-                    WHERE fa.student_id = (SELECT id FROM enroll WHERE student_id = {$studentID} LIMIT 1)
+                    WHERE fa.student_id = {$studentID}
                       AND fa.session_id = {$sessionID}
                     ORDER BY fph.date ASC, fph.id ASC
                 ";
@@ -2359,12 +2359,12 @@ class Fees extends Admin_Controller
                                                         AND e.session_id = {$sessionID}
             INNER JOIN class   c ON c.id = e.class_id
             LEFT JOIN (
-                SELECT fa.student_id AS enroll_id, SUM(fph.amount + fph.discount) AS paid
+                SELECT fa.student_id, SUM(fph.amount + fph.discount) AS paid
                 FROM fee_payment_history fph
                 INNER JOIN fee_allocation fa ON fa.id = fph.allocation_id
                 WHERE fa.session_id = {$sessionID}
                 GROUP BY fa.student_id
-            ) fph_sum ON fph_sum.enroll_id = e.id
+            ) fph_sum ON fph_sum.student_id = e.student_id
             ORDER BY ABS(sw.amount - IFNULL(fph_sum.paid, 0)) DESC
         ";
         $rows = $this->db->query($sql)->result_array();
@@ -2445,7 +2445,7 @@ class Fees extends Admin_Controller
             INNER JOIN fee_allocation fa  ON fa.id      = fph.allocation_id
                                          AND fa.branch_id = {$branchID}
             INNER JOIN fee_groups     fg  ON fg.id      = fa.group_id
-            INNER JOIN enroll         e   ON e.id       = fa.student_id
+            INNER JOIN enroll         e   ON e.student_id = fa.student_id
             INNER JOIN student        s   ON s.id       = e.student_id
             LEFT  JOIN class          c   ON c.id       = e.class_id
             WHERE fph.remarks LIKE '%DVA Wallet%'
@@ -2491,7 +2491,7 @@ class Fees extends Admin_Controller
                    AND fg.name LIKE '%3RD TERM%2025/2026%'
                    AND fg.name NOT LIKE '%BUS%'
                    AND fg.name NOT LIKE '%MEAL%'
-            INNER JOIN enroll e ON e.id = a_keep.student_id
+            INNER JOIN enroll e ON e.student_id = a_keep.student_id
             INNER JOIN student s ON s.id = e.student_id
             INNER JOIN fee_allocation a_del
                    ON a_del.student_id = a_keep.student_id
