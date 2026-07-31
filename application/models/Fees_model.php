@@ -242,6 +242,10 @@ class Fees_model extends MY_Model
      */
     public function getInvoiceDetailsAllSessions($enrollID = '')
     {
+        // Suppress older-session allocations whose group_id was later copied into a
+        // newer session (e.g. by a manual Step-3 promotion script). The original
+        // allocation and its payment history remain in the DB untouched; they are
+        // just hidden from the profile so the same fee doesn't appear twice.
         $sql = "SELECT fa.group_id, fa.prev_due, fa.id AS allocation_id, fa.session_id,
                        sy.school_year, fg.name AS group_name,
                        ft.name, ft.system, fgd.amount, fgd.due_date, fgd.fee_type_id
@@ -251,6 +255,12 @@ class Fees_model extends MY_Model
                 LEFT JOIN fee_groups  fg ON fg.id = fa.group_id
                 LEFT JOIN schoolyear  sy ON sy.id = fa.session_id
                 WHERE fa.student_id = " . $this->db->escape($enrollID) . "
+                  AND NOT EXISTS (
+                      SELECT 1 FROM fee_allocation newer
+                      WHERE newer.student_id = fa.student_id
+                        AND newer.group_id   = fa.group_id
+                        AND newer.session_id > fa.session_id
+                  )
                 ORDER BY fa.session_id DESC, fa.group_id ASC, ft.id ASC";
 
         $rows = array();
