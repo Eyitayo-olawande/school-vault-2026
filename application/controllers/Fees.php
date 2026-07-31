@@ -2064,17 +2064,28 @@ class Fees extends Admin_Controller
             : '';
 
         // --- Summary: expected, collected (full term), outstanding ---
+        // Pre-aggregate fgd and fph into subqueries to avoid the Cartesian-product fan-out
+        // that occurred when both were flat-joined: SUM(fgd.amount) was multiplied by the
+        // number of payment rows per allocation, inflating every total.
         $summaryRow = $this->db->query("
             SELECT
-                IFNULL(SUM(fgd.amount + fa.prev_due), 0)                         AS expected,
-                IFNULL(SUM(fph.amount + fph.discount), 0)                        AS collected_full,
-                IFNULL(SUM(fgd.amount + fa.prev_due), 0)
-                  - IFNULL(SUM(fph.amount + fph.discount), 0)                    AS outstanding
+                IFNULL(SUM(IFNULL(fgd_agg.fgd_total, 0) + fa.prev_due), 0)          AS expected,
+                IFNULL(SUM(IFNULL(fph_agg.paid_total, 0)), 0)                         AS collected_full,
+                IFNULL(SUM(IFNULL(fgd_agg.fgd_total, 0) + fa.prev_due), 0)
+                  - IFNULL(SUM(IFNULL(fph_agg.paid_total, 0)), 0)                     AS outstanding
             FROM fee_allocation fa
-            INNER JOIN enroll e     ON e.student_id = fa.student_id
+            INNER JOIN enroll e      ON e.student_id = fa.student_id
             LEFT  JOIN fee_groups fg ON fg.id = fa.group_id
-            LEFT  JOIN fee_groups_details fgd ON fgd.fee_groups_id = fa.group_id
-            LEFT  JOIN fee_payment_history fph ON fph.allocation_id = fa.id AND fph.status = 'paid'
+            LEFT  JOIN (
+                SELECT fee_groups_id, SUM(amount) AS fgd_total
+                FROM fee_groups_details
+                GROUP BY fee_groups_id
+            ) fgd_agg ON fgd_agg.fee_groups_id = fa.group_id
+            LEFT  JOIN (
+                SELECT allocation_id, SUM(amount + discount) AS paid_total
+                FROM fee_payment_history
+                GROUP BY allocation_id
+            ) fph_agg ON fph_agg.allocation_id = fa.id
             WHERE {$bW}{$termW}
         ")->row_array();
 
@@ -2103,14 +2114,22 @@ class Fees extends Admin_Controller
             SELECT COUNT(*) AS cnt FROM (
                 SELECT fa.student_id
                 FROM fee_allocation fa
-                INNER JOIN enroll e     ON e.student_id = fa.student_id
+                INNER JOIN enroll e      ON e.student_id = fa.student_id
                 LEFT  JOIN fee_groups fg ON fg.id = fa.group_id
-                LEFT  JOIN fee_groups_details fgd ON fgd.fee_groups_id = fa.group_id
-                LEFT  JOIN fee_payment_history fph ON fph.allocation_id = fa.id AND fph.status = 'paid'
+                LEFT  JOIN (
+                    SELECT fee_groups_id, SUM(amount) AS fgd_total
+                    FROM fee_groups_details
+                    GROUP BY fee_groups_id
+                ) fgd_agg ON fgd_agg.fee_groups_id = fa.group_id
+                LEFT  JOIN (
+                    SELECT allocation_id, SUM(amount + discount) AS paid_total
+                    FROM fee_payment_history
+                    GROUP BY allocation_id
+                ) fph_agg ON fph_agg.allocation_id = fa.id
                 WHERE {$bW}{$termW}
                 GROUP BY fa.student_id
-                HAVING IFNULL(SUM(fgd.amount + fa.prev_due), 0)
-                         - IFNULL(SUM(fph.amount + fph.discount), 0) > 0
+                HAVING IFNULL(SUM(IFNULL(fgd_agg.fgd_total, 0) + fa.prev_due), 0)
+                         - IFNULL(SUM(IFNULL(fph_agg.paid_total, 0)), 0) > 0
             ) sub
         ")->row()->cnt;
 
@@ -2119,15 +2138,23 @@ class Fees extends Admin_Controller
             SELECT e.student_id,
                    CONCAT(s.first_name, ' ', s.last_name) AS student_name,
                    s.register_no, c.name AS class_name,
-                   IFNULL(SUM(fgd.amount + fa.prev_due), 0)
-                     - IFNULL(SUM(fph.amount + fph.discount), 0) AS balance
+                   IFNULL(SUM(IFNULL(fgd_agg.fgd_total, 0) + fa.prev_due), 0)
+                     - IFNULL(SUM(IFNULL(fph_agg.paid_total, 0)), 0) AS balance
             FROM fee_allocation fa
-            INNER JOIN enroll e     ON e.student_id = fa.student_id
-            INNER JOIN student s    ON s.id  = e.student_id
-            INNER JOIN class c      ON c.id  = e.class_id
+            INNER JOIN enroll e      ON e.student_id = fa.student_id
+            INNER JOIN student s     ON s.id  = e.student_id
+            INNER JOIN class c       ON c.id  = e.class_id
             LEFT  JOIN fee_groups fg ON fg.id = fa.group_id
-            LEFT  JOIN fee_groups_details fgd ON fgd.fee_groups_id = fa.group_id
-            LEFT  JOIN fee_payment_history fph ON fph.allocation_id = fa.id AND fph.status = 'paid'
+            LEFT  JOIN (
+                SELECT fee_groups_id, SUM(amount) AS fgd_total
+                FROM fee_groups_details
+                GROUP BY fee_groups_id
+            ) fgd_agg ON fgd_agg.fee_groups_id = fa.group_id
+            LEFT  JOIN (
+                SELECT allocation_id, SUM(amount + discount) AS paid_total
+                FROM fee_payment_history
+                GROUP BY allocation_id
+            ) fph_agg ON fph_agg.allocation_id = fa.id
             WHERE {$bW}{$termW}
             GROUP BY fa.student_id
             HAVING balance > 0
