@@ -281,6 +281,77 @@ class Student_promotion extends Admin_Controller
         return true;
     }
 
+    // Revert the most recent promotion for a single student.
+    // Restores enroll to pre_class / pre_section / pre_session and removes the
+    // promotion_history record. Only permitted when the promoted session is still
+    // the active session (prevents tampering with historical records).
+    public function revert_promotion()
+    {
+        if (!$this->input->is_ajax_request()) { show_404(); }
+        if (!get_permission('student_promotion', 'is_add')) { ajax_access_denied(); }
+
+        $student_id = (int) $this->input->post('student_id');
+        $history_id = (int) $this->input->post('history_id');
+        if (!$student_id || !$history_id) {
+            echo json_encode(['status' => 'fail', 'error' => 'Missing parameters']);
+            return;
+        }
+
+        // Fetch the specific promotion_history record and verify ownership
+        $history = $this->db
+            ->where('id', $history_id)
+            ->where('student_id', $student_id)
+            ->where('is_leave', 0)
+            ->get('promotion_history')->row_array();
+
+        if (empty($history)) {
+            echo json_encode(['status' => 'fail', 'error' => 'Promotion record not found or is a leave record']);
+            return;
+        }
+
+        // Safety: only allow reverting if the promoted-to session is the active session
+        if ((int)$history['pro_session'] !== (int)get_session_id()) {
+            echo json_encode(['status' => 'fail', 'error' => 'Can only revert the most recent promotion (active session)']);
+            return;
+        }
+
+        $this->db->trans_start();
+
+        // Move the enroll record back to where the student came from
+        $this->db->where('student_id', $student_id);
+        $this->db->update('enroll', [
+            'session_id'  => $history['pre_session'],
+            'class_id'    => $history['pre_class'],
+            'section_id'  => $history['pre_section'],
+        ]);
+
+        // If a carry-forward fee allocation was created for this promotion, remove it
+        if (!empty($history['prev_due']) && (float)$history['prev_due'] > 0) {
+            // Carry-forward allocations have prev_due > 0 and group_id IS NULL (no fee group)
+            $cf = $this->db
+                ->where('student_id', $student_id)
+                ->where('session_id', $history['pro_session'])
+                ->where('prev_due >', 0)
+                ->where('group_id IS NULL', null, false)
+                ->get('fee_allocation')->result_array();
+            foreach ($cf as $alloc) {
+                $this->db->where('allocation_id', $alloc['id'])->delete('fee_payment_history');
+                $this->db->where('id', $alloc['id'])->delete('fee_allocation');
+            }
+        }
+
+        // Remove the promotion_history record
+        $this->db->where('id', $history_id)->delete('promotion_history');
+
+        $this->db->trans_complete();
+
+        if ($this->db->trans_status() === false) {
+            echo json_encode(['status' => 'fail', 'error' => 'Database error — rollback performed']);
+        } else {
+            echo json_encode(['status' => 'success']);
+        }
+    }
+
     function validClass($classID) {
         if (!empty($classID)) {
             $pre_class_id = $this->input->post('class_id');

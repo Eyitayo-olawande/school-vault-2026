@@ -683,16 +683,19 @@ $feesActive = isset($student['fees_active']) ? (int)$student['fees_active'] : 1;
 										<th><?=translate('promoted_session')?></th>
 										<th><?=translate('due_amount')?></th>
 										<th><?=translate('promoted_date')?></th>
+										<?php if (get_permission('student_promotion', 'is_add')): ?><th width="80"></th><?php endif; ?>
 									</tr>
 								</thead>
 								<tbody>
 									<?php
 									$count = 1;
+									$activeSessionID = get_session_id();
 									$this->db->order_by('id', 'asc');
 									$this->db->where(array('student_id' => $student['id']));
 									$historys = $this->db->get('promotion_history')->result();
 										if (count($historys)) {
 											foreach($historys as $history):
+												$canRevert = (!$history->is_leave && (int)$history->pro_session === (int)$activeSessionID);
 												?>
 										<tr>
 											<td><?php echo $count++;?></td>
@@ -702,12 +705,24 @@ $feesActive = isset($student['fees_active']) ? (int)$student['fees_active'] : 1;
 											<td><?php echo get_type_name_by_id('schoolyear', $history->pro_session, 'school_year'); ?></td>
 											<td><?php echo currencyFormat($history->prev_due); ?></td>
 											<td><?php echo _d($history->date);?></td>
-											
+											<?php if (get_permission('student_promotion', 'is_add')): ?>
+											<td>
+												<?php if ($canRevert): ?>
+												<button class="btn btn-xs btn-danger btn-revert-promotion"
+													data-history-id="<?= $history->id ?>"
+													data-student-id="<?= $student['id'] ?>"
+													data-student-name="<?= html_escape($student['first_name'] . ' ' . $student['last_name']) ?>"
+													title="Undo this promotion">
+													<i class="fas fa-undo"></i> Revert
+												</button>
+												<?php endif; ?>
+											</td>
+											<?php endif; ?>
 										</tr>
 									<?php
 										endforeach;
 									} else {
-										echo '<tr><td colspan="7"><h5 class="text-danger text-center">' . translate('no_information_available') . '</td></tr>';
+										echo '<tr><td colspan="8"><h5 class="text-danger text-center">' . translate('no_information_available') . '</td></tr>';
 									}
 									?>
 								</tbody>
@@ -1357,4 +1372,32 @@ $feesActive = isset($student['fees_active']) ? (int)$student['fees_active'] : 1;
         feesAjax('deactivate', reason, function () { location.reload(); });
     });
 })();
+</script>
+
+<script>
+$(document).on('click', '.btn-revert-promotion', function () {
+    var btn         = $(this);
+    var historyId   = btn.data('history-id');
+    var studentId   = btn.data('student-id');
+    var studentName = btn.data('student-name');
+    if (!confirm('Revert promotion for ' + studentName + '?\n\nThis will move the student back to their previous class and session. This action cannot be undone automatically.')) {
+        return;
+    }
+    btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Reverting...');
+    $.post(base_url + 'student_promotion/revert_promotion', {
+        student_id: studentId,
+        history_id: historyId
+    }, function (resp) {
+        if (resp.status === 'success') {
+            set_alert('success', 'Promotion reverted successfully.');
+            setTimeout(function () { location.reload(); }, 1200);
+        } else {
+            set_alert('error', resp.error || 'Failed to revert promotion.');
+            btn.prop('disabled', false).html('<i class="fas fa-undo"></i> Revert');
+        }
+    }, 'json').fail(function () {
+        set_alert('error', 'Server error — please try again.');
+        btn.prop('disabled', false).html('<i class="fas fa-undo"></i> Revert');
+    });
+});
 </script>
