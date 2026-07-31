@@ -336,10 +336,11 @@ class Paystack extends CI_Controller {
 
     // Build an array of outstanding (allocation_id, type_id, balance) for a student in the current session.
     private function build_fee_balances($student_id) {
-        $sessionID   = get_session_id();
+        // No session filter: a promoted student's old-session outstanding fees must
+        // also receive DVA payments. session_id = current only would silently skip
+        // prior-year balances after promotion.
         $allocations = $this->db
             ->where('student_id', $student_id)
-            ->where('session_id', $sessionID)
             ->get('fee_allocation')->result_array();
 
         $fee_balances = [];
