@@ -76,7 +76,8 @@
 								2. Outstanding fees shown are for reference only — they are not carried forward automatically.<br/>
 								3. Transport fee assignments are copied to the new session automatically.<br/>
 								4. <em>Running</em> keeps the student in the same class — only the session changes.<br/>
-								5. <em>Leave / Add Alumni</em> marks the student as graduated.
+								5. <em>Leave / Add Alumni</em> marks the student as graduated — <strong>session selection does not apply to these students</strong>; they remain in the current session on record.<br/>
+								6. <strong>For final-year (e.g. Year 12) graduation:</strong> simply tick <em>Leave / Add Alumni</em> for each graduating student — the “Promote To Session” dropdown is ignored for leave students.
 							</div>
 						</div>
 
@@ -214,6 +215,9 @@
 										<div class="pt-csm checkbox-replace">
 											<label class="i-checks"><input type="checkbox" name="promote[<?=$key?>][leave]" value="<?=$row['id']?>"><i></i> Leave / Add Alumni</label>
 										</div>
+										<small class="leave-note text-muted" style="display:none;">
+											<i class="fas fa-info-circle"></i> Stays in current session
+										</small>
 									</td>
 								</tr>
 								<?php
@@ -251,9 +255,11 @@
 <script type="text/javascript">
 $(document).ready(function () {
 
-	// Leave checkbox disables other controls in that row
+	// Leave checkbox: disable row controls and show "stays in current session" note
 	$(document).on('change', ".leave input[type='checkbox']", function() {
-		$(this).closest('tr').find('.swa').prop('disabled', this.checked);
+		var row = $(this).closest('tr');
+		row.find('.swa').prop('disabled', this.checked);
+		row.find('.leave-note').toggle(this.checked);
 	});
 
 	// B: Toggle per-term fee breakdown
