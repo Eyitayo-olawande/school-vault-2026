@@ -30,116 +30,176 @@
                     <?php endif; ?>
                 </form>
 
-                <!-- Legend -->
-                <div class="mb-sm" style="font-size:12px;">
-                    <span class="label label-danger mr-xs">Outstanding</span> Fees unpaid — cannot issue certificate &nbsp;
-                    <span class="label label-warning mr-xs">Fee Cleared</span> Balance settled — certificate can be issued &nbsp;
-                    <span class="label label-success mr-xs">Issued</span> Certificate collected
-                </div>
+                <!-- Tabs -->
+                <ul class="nav nav-tabs mb-md" id="alumniTabs">
+                    <li class="active">
+                        <a href="#tab-graduates" data-toggle="tab">
+                            <i class="fas fa-graduation-cap"></i>
+                            Graduates <span class="badge badge-success"><?= count($alumni) ?></span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#tab-left" data-toggle="tab">
+                            <i class="fas fa-sign-out-alt"></i>
+                            Left / Withdrawn <span class="badge badge-default"><?= count($left_students) ?></span>
+                        </a>
+                    </li>
+                </ul>
 
-                <div class="table-responsive">
-                    <table class="table table-bordered table-hover table-condensed" id="alumniTable">
-                        <thead>
-                            <tr>
-                                <th width="40">#</th>
-                                <th><?= translate('name') ?></th>
-                                <th><?= translate('register_no') ?></th>
-                                <th><?= translate('class') ?> / <?= translate('section') ?></th>
-                                <th><?= translate('session') ?></th>
-                                <th>Outstanding</th>
-                                <th>Certificate Status</th>
-                                <?php if (get_permission('manage_alumni', 'is_add')): ?>
-                                <th width="160">Action</th>
-                                <?php endif; ?>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php if (!empty($alumni)): ?>
-                            <?php $n = 1; foreach ($alumni as $row):
-                                $outstanding   = (float)$row['outstanding'];
-                                $isCleared     = !empty($row['cleared_at']);
-                                $isIssued      = !empty($row['issued_at']);
-                                $photo = !empty($row['photo'])
-                                    ? base_url('uploads/student/' . $row['photo'])
-                                    : base_url('assets/images/avatar/avatar.png');
-                            ?>
-                            <tr>
-                                <td><?= $n++ ?></td>
-                                <td>
-                                    <img src="<?= $photo ?>" class="img-circle mr-xs" style="width:28px;height:28px;object-fit:cover;" alt="">
-                                    <a href="<?= base_url('student/profile/' . $row['student_id']) ?>">
-                                        <?= html_escape($row['first_name'] . ' ' . $row['last_name']) ?>
-                                    </a>
-                                </td>
-                                <td><?= html_escape($row['register_no']) ?></td>
-                                <td><?= html_escape($row['class_name'] . ' (' . $row['section_name'] . ')') ?></td>
-                                <td><?= html_escape($row['school_year']) ?></td>
-                                <td class="text-right" style="font-variant-numeric:tabular-nums;">
-                                    <?php if ($outstanding > 0): ?>
-                                        <strong class="text-danger"><?= number_format($outstanding, 2) ?></strong>
-                                    <?php else: ?>
-                                        <span class="text-success"><i class="fas fa-check-circle"></i> Nil</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td>
-                                    <?php if ($isIssued): ?>
-                                        <span class="label label-success">
-                                            <i class="fas fa-certificate"></i> Issued
-                                        </span>
-                                        <br><small class="text-muted"><?= _d($row['issued_at']) ?></small>
-                                    <?php elseif ($isCleared): ?>
-                                        <span class="label label-warning">
-                                            <i class="fas fa-check"></i> Fee Cleared
-                                        </span>
-                                        <br><small class="text-muted"><?= _d($row['cleared_at']) ?></small>
-                                    <?php else: ?>
-                                        <span class="label label-danger">
-                                            <i class="fas fa-lock"></i> Outstanding
-                                        </span>
-                                    <?php endif; ?>
-                                </td>
-                                <?php if (get_permission('manage_alumni', 'is_add')): ?>
-                                <td>
-                                    <?php if ($isIssued): ?>
-                                        <span class="text-muted" style="font-size:11px;"><i class="fas fa-check-double"></i> Done</span>
-                                    <?php elseif ($isCleared): ?>
-                                        <button class="btn btn-xs btn-success btn-mark-issued"
-                                            data-student-id="<?= $row['student_id'] ?>"
-                                            data-name="<?= html_escape($row['first_name'] . ' ' . $row['last_name']) ?>">
-                                            <i class="fas fa-certificate"></i> Issue Certificate
-                                        </button>
-                                    <?php elseif ($outstanding <= 0): ?>
-                                        <button class="btn btn-xs btn-warning btn-mark-cleared"
-                                            data-student-id="<?= $row['student_id'] ?>"
-                                            data-name="<?= html_escape($row['first_name'] . ' ' . $row['last_name']) ?>">
-                                            <i class="fas fa-check"></i> Mark Fee Cleared
-                                        </button>
-                                    <?php else: ?>
-                                        <span class="text-danger" style="font-size:11px;" title="Collect outstanding fees first">
-                                            <i class="fas fa-lock"></i> Fees pending
-                                        </span>
-                                    <?php endif; ?>
-                                </td>
-                                <?php endif; ?>
-                            </tr>
-                            <?php endforeach; ?>
-                            <?php else: ?>
-                            <tr>
-                                <td colspan="8">
-                                    <h5 class="text-danger text-center"><?= translate('no_information_available') ?></h5>
-                                </td>
-                            </tr>
-                            <?php endif; ?>
-                        </tbody>
-                    </table>
-                </div>
+                <div class="tab-content">
 
-                <?php if (!empty($alumni)): ?>
-                <p class="text-muted mt-sm" style="font-size:12px;">
-                    <?= count($alumni) ?> alumni record<?= count($alumni) !== 1 ? 's' : '' ?>
-                    <?= $selected_session ? 'in selected session' : 'across all sessions' ?>
-                </p>
-                <?php endif; ?>
+                    <!-- GRADUATES TAB -->
+                    <div class="tab-pane active" id="tab-graduates">
+
+                        <!-- Legend -->
+                        <div class="mb-sm" style="font-size:12px;">
+                            <span class="label label-danger mr-xs">Outstanding</span> Fees unpaid — cannot issue certificate &nbsp;
+                            <span class="label label-warning mr-xs">Fee Cleared</span> Balance settled — certificate can be issued &nbsp;
+                            <span class="label label-success mr-xs">Issued</span> Certificate collected
+                        </div>
+
+                        <div class="table-responsive">
+                            <table class="table table-bordered table-hover table-condensed" id="graduatesTable">
+                                <thead>
+                                    <tr>
+                                        <th width="40">#</th>
+                                        <th><?= translate('name') ?></th>
+                                        <th><?= translate('register_no') ?></th>
+                                        <th><?= translate('class') ?> / <?= translate('section') ?></th>
+                                        <th><?= translate('session') ?></th>
+                                        <th>Outstanding</th>
+                                        <th>Certificate Status</th>
+                                        <?php if (get_permission('manage_alumni', 'is_add')): ?>
+                                        <th width="160">Action</th>
+                                        <?php endif; ?>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php if (!empty($alumni)): ?>
+                                    <?php $n = 1; foreach ($alumni as $row):
+                                        $outstanding = (float)$row['outstanding'];
+                                        $isCleared   = !empty($row['cleared_at']);
+                                        $isIssued    = !empty($row['issued_at']);
+                                        $photo = !empty($row['photo'])
+                                            ? base_url('uploads/student/' . $row['photo'])
+                                            : base_url('assets/images/avatar/avatar.png');
+                                    ?>
+                                    <tr>
+                                        <td><?= $n++ ?></td>
+                                        <td>
+                                            <img src="<?= $photo ?>" class="img-circle mr-xs" style="width:28px;height:28px;object-fit:cover;" alt="">
+                                            <a href="<?= base_url('student/profile/' . $row['student_id']) ?>">
+                                                <?= html_escape($row['first_name'] . ' ' . $row['last_name']) ?>
+                                            </a>
+                                        </td>
+                                        <td><?= html_escape($row['register_no']) ?></td>
+                                        <td><?= html_escape($row['class_name'] . ' (' . $row['section_name'] . ')') ?></td>
+                                        <td><?= html_escape($row['school_year']) ?></td>
+                                        <td class="text-right" style="font-variant-numeric:tabular-nums;">
+                                            <?php if ($outstanding > 0): ?>
+                                                <strong class="text-danger"><?= number_format($outstanding, 2) ?></strong>
+                                            <?php else: ?>
+                                                <span class="text-success"><i class="fas fa-check-circle"></i> Nil</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td>
+                                            <?php if ($isIssued): ?>
+                                                <span class="label label-success"><i class="fas fa-certificate"></i> Issued</span>
+                                                <br><small class="text-muted"><?= _d($row['issued_at']) ?></small>
+                                            <?php elseif ($isCleared): ?>
+                                                <span class="label label-warning"><i class="fas fa-check"></i> Fee Cleared</span>
+                                                <br><small class="text-muted"><?= _d($row['cleared_at']) ?></small>
+                                            <?php else: ?>
+                                                <span class="label label-danger"><i class="fas fa-lock"></i> Outstanding</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <?php if (get_permission('manage_alumni', 'is_add')): ?>
+                                        <td>
+                                            <?php if ($isIssued): ?>
+                                                <span class="text-muted" style="font-size:11px;"><i class="fas fa-check-double"></i> Done</span>
+                                            <?php elseif ($isCleared): ?>
+                                                <button class="btn btn-xs btn-success btn-mark-issued"
+                                                    data-student-id="<?= $row['student_id'] ?>"
+                                                    data-name="<?= html_escape($row['first_name'] . ' ' . $row['last_name']) ?>">
+                                                    <i class="fas fa-certificate"></i> Issue Certificate
+                                                </button>
+                                            <?php elseif ($outstanding <= 0): ?>
+                                                <button class="btn btn-xs btn-warning btn-mark-cleared"
+                                                    data-student-id="<?= $row['student_id'] ?>"
+                                                    data-name="<?= html_escape($row['first_name'] . ' ' . $row['last_name']) ?>">
+                                                    <i class="fas fa-check"></i> Mark Fee Cleared
+                                                </button>
+                                            <?php else: ?>
+                                                <span class="text-danger" style="font-size:11px;" title="Collect outstanding fees first">
+                                                    <i class="fas fa-lock"></i> Fees pending
+                                                </span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <?php endif; ?>
+                                    </tr>
+                                    <?php endforeach; ?>
+                                    <?php else: ?>
+                                    <tr><td colspan="8"><h5 class="text-danger text-center"><?= translate('no_information_available') ?></h5></td></tr>
+                                    <?php endif; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div><!-- /tab-graduates -->
+
+                    <!-- LEFT / WITHDRAWN TAB -->
+                    <div class="tab-pane" id="tab-left">
+                        <p class="text-muted mb-sm" style="font-size:12px;">
+                            Students who departed before completing the programme. No certificate gating applies.
+                        </p>
+                        <div class="table-responsive">
+                            <table class="table table-bordered table-hover table-condensed" id="leftTable">
+                                <thead>
+                                    <tr>
+                                        <th width="40">#</th>
+                                        <th><?= translate('name') ?></th>
+                                        <th><?= translate('register_no') ?></th>
+                                        <th><?= translate('guardian_name') ?></th>
+                                        <th><?= translate('class') ?> / <?= translate('section') ?></th>
+                                        <th><?= translate('session') ?></th>
+                                        <th><?= translate('mobileno') ?></th>
+                                        <th width="60"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php if (!empty($left_students)): ?>
+                                    <?php $n = 1; foreach ($left_students as $row):
+                                        $photo = !empty($row['photo'])
+                                            ? base_url('uploads/student/' . $row['photo'])
+                                            : base_url('assets/images/avatar/avatar.png');
+                                    ?>
+                                    <tr>
+                                        <td><?= $n++ ?></td>
+                                        <td>
+                                            <img src="<?= $photo ?>" class="img-circle mr-xs" style="width:28px;height:28px;object-fit:cover;" alt="">
+                                            <a href="<?= base_url('student/profile/' . $row['student_id']) ?>">
+                                                <?= html_escape($row['first_name'] . ' ' . $row['last_name']) ?>
+                                            </a>
+                                        </td>
+                                        <td><?= html_escape($row['register_no']) ?></td>
+                                        <td><?= html_escape($row['guardian_name'] ?: 'N/A') ?></td>
+                                        <td><?= html_escape($row['class_name'] . ' (' . $row['section_name'] . ')') ?></td>
+                                        <td><?= html_escape($row['school_year']) ?></td>
+                                        <td><?= html_escape($row['mobileno']) ?></td>
+                                        <td>
+                                            <a href="<?= base_url('student/profile/' . $row['student_id']) ?>"
+                                               class="btn btn-xs btn-default"><i class="fas fa-eye"></i></a>
+                                        </td>
+                                    </tr>
+                                    <?php endforeach; ?>
+                                    <?php else: ?>
+                                    <tr><td colspan="8"><h5 class="text-danger text-center"><?= translate('no_information_available') ?></h5></td></tr>
+                                    <?php endif; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div><!-- /tab-left -->
+
+                </div><!-- /tab-content -->
             </div>
         </section>
     </div>
@@ -148,11 +208,8 @@
 <script>
 $(document).ready(function () {
     if ($.fn.DataTable) {
-        $('#alumniTable').DataTable({
-            order: [[4, 'desc'], [1, 'asc']],
-            pageLength: 25,
-            columnDefs: [{ orderable: false, targets: [-1] }]
-        });
+        $('#graduatesTable').DataTable({ order: [[4,'desc'],[1,'asc']], pageLength: 25, columnDefs: [{orderable:false,targets:[-1]}] });
+        $('#leftTable').DataTable({ order: [[5,'desc'],[1,'asc']], pageLength: 25, columnDefs: [{orderable:false,targets:[-1]}] });
     }
 
     function alumniAjax(url, studentId, name, confirmMsg, btn, successMsg) {
@@ -173,27 +230,17 @@ $(document).ready(function () {
     }
 
     $(document).on('click', '.btn-mark-cleared', function () {
-        var btn  = $(this);
-        var id   = btn.data('student-id');
-        var name = btn.data('name');
-        alumniAjax(
-            'alumni/mark_cleared', id, name,
-            'Confirm that all outstanding fees for ' + name + ' have been collected and settled?',
-            btn,
-            'Fee clearance recorded for ' + name + '.'
-        );
+        var btn = $(this), id = btn.data('student-id'), name = btn.data('name');
+        alumniAjax('alumni/mark_cleared', id, name,
+            'Confirm all outstanding fees for ' + name + ' have been collected?',
+            btn, 'Fee clearance recorded for ' + name + '.');
     });
 
     $(document).on('click', '.btn-mark-issued', function () {
-        var btn  = $(this);
-        var id   = btn.data('student-id');
-        var name = btn.data('name');
-        alumniAjax(
-            'alumni/mark_issued', id, name,
-            'Confirm that the certificate has been physically handed to ' + name + '?',
-            btn,
-            'Certificate issued for ' + name + '.'
-        );
+        var btn = $(this), id = btn.data('student-id'), name = btn.data('name');
+        alumniAjax('alumni/mark_issued', id, name,
+            'Confirm the certificate has been handed to ' + name + '?',
+            btn, 'Certificate issued for ' + name + '.');
     });
 });
 </script>
