@@ -76,8 +76,8 @@
 								2. Outstanding fees shown are for reference only — they are not carried forward automatically.<br/>
 								3. Transport fee assignments are copied to the new session automatically.<br/>
 								4. <em>Running</em> keeps the student in the same class — only the session changes.<br/>
-								5. <em>Leave / Add Alumni</em> marks the student as graduated — <strong>session selection does not apply to these students</strong>; they remain in the current session on record.<br/>
-								6. <strong>For final-year (e.g. Year 12) graduation:</strong> simply tick <em>Leave / Add Alumni</em> for each graduating student — the “Promote To Session” dropdown is ignored for leave students.
+								5. <strong>Exit Status:</strong> <em>Left/Withdrawn</em> = departed before completing; <em>Graduate</em> = completed the programme. Both options keep the student in the current session on record — the “Promote To Session” dropdown is ignored for both.<br/>
+								6. <strong>For Year 12 graduation:</strong> set Exit Status to <em>Graduate</em> for each student. Use the <em>All Graduate</em> button in the column header to set all at once.
 							</div>
 						</div>
 
@@ -136,7 +136,13 @@
 									<th><?=translate('class')?></th>
 									<th><?=translate('roll')?></th>
 									<th>Outstanding Fees <small class="text-muted">(auto-calculated)</small></th>
-									<th><?=translate('status')?></th>
+									<th>Exit Status
+										<div style="margin-top:5px; white-space:nowrap;">
+											<button type="button" class="btn btn-xs btn-default btn-set-all-exit" data-value="left" title="Set all rows to Left/Withdrawn">All Left</button>
+											<button type="button" class="btn btn-xs btn-primary btn-set-all-exit" data-value="graduated" title="Set all rows to Graduate">All Graduate</button>
+											<button type="button" class="btn btn-xs btn-link btn-set-all-exit" data-value="" title="Clear all exit status">Clear</button>
+										</div>
+									</th>
 								</tr>
 							</thead>
 							<tbody>
@@ -212,10 +218,12 @@
 										<?php endif; ?>
 									</td>
 									<td class="leave">
-										<div class="pt-csm checkbox-replace">
-											<label class="i-checks"><input type="checkbox" name="promote[<?=$key?>][leave]" value="<?=$row['id']?>"><i></i> Leave / Add Alumni</label>
-										</div>
-										<small class="leave-note text-muted" style="display:none;">
+										<select name="promote[<?=$key?>][exit_type]" class="form-control input-sm exit-type-select">
+											<option value="">— Promote normally —</option>
+											<option value="left">Left / Withdrawn</option>
+											<option value="graduated">Graduate</option>
+										</select>
+										<small class="leave-note text-muted" style="display:none; margin-top:4px;">
 											<i class="fas fa-info-circle"></i> Stays in current session
 										</small>
 									</td>
@@ -255,11 +263,18 @@
 <script type="text/javascript">
 $(document).ready(function () {
 
-	// Leave checkbox: disable row controls and show "stays in current session" note
-	$(document).on('change', ".leave input[type='checkbox']", function() {
-		var row = $(this).closest('tr');
-		row.find('.swa').prop('disabled', this.checked);
-		row.find('.leave-note').toggle(this.checked);
+	// Exit type select: disable row controls when Left or Graduate is chosen
+	$(document).on('change', '.exit-type-select', function () {
+		var row    = $(this).closest('tr');
+		var isExit = $(this).val() !== '';
+		row.find('.swa').prop('disabled', isExit);
+		row.find('.leave-note').toggle(isExit);
+	});
+
+	// Select-all exit type buttons in the column header
+	$(document).on('click', '.btn-set-all-exit', function () {
+		var val = $(this).data('value');
+		$('.exit-type-select').val(val).trigger('change');
 	});
 
 	// B: Toggle per-term fee breakdown

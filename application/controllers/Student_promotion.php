@@ -88,7 +88,9 @@ class Student_promotion extends Admin_Controller
                 foreach ($promote as $key => $value) {
                     if (isset($value['enroll_id'])) {
 
-                        $leaveStatus = (isset($value['leave']) ? 1 : 0);
+                        $exitType    = (isset($value['exit_type']) && in_array($value['exit_type'], ['left', 'graduated']))
+                            ? $value['exit_type'] : '';
+                        $leaveStatus = ($exitType !== '') ? 1 : 0;
                         if ($leaveStatus == 1) {
                             $promote_class_id = $pre_class_id;
                             $promote_section_id = $pre_section_id;
@@ -121,7 +123,7 @@ class Student_promotion extends Admin_Controller
 
                         if ($leaveStatus == 1) {
                             $this->db->where('id', $enroll_id);
-                            $this->db->update('enroll', ['is_alumni' => 1]);
+                            $this->db->update('enroll', ['is_alumni' => 1, 'leave_type' => $exitType]);
                             $promotion_history['is_leave'] = 1;
                         } else {
                             $roll = empty($value['roll']) ? 0 : $value['roll'];
@@ -323,6 +325,8 @@ class Student_promotion extends Admin_Controller
             'session_id'  => $history['pre_session'],
             'class_id'    => $history['pre_class'],
             'section_id'  => $history['pre_section'],
+            'is_alumni'   => 0,
+            'leave_type'  => null,
         ]);
 
         // If a carry-forward fee allocation was created for this promotion, remove it
