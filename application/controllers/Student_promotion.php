@@ -60,10 +60,25 @@ class Student_promotion extends Admin_Controller
 
         if ($_POST) {
             $dueForward = (isset($_POST['due_forward']) ? 1 : 0);
-            $this->form_validation->set_rules('promote_session_id', translate('promote_to_session'), 'required');
-            $this->form_validation->set_rules('promote_class_id', translate('promote_to_class'), 'required|callback_validClass');
-            $this->form_validation->set_rules('promote_section_id', translate('promote_section_id'), 'required|callback_validSection');
             $items = $this->input->post('promote');
+
+            // Only require promote_session/class/section if at least one student
+            // is actually being promoted (exit_type empty = normal promotion).
+            // When every selected student is leaving (Graduate or Left), those
+            // three dropdowns are irrelevant and must not block the form.
+            $anyPromoting = false;
+            foreach ((array)$items as $v) {
+                if (isset($v['enroll_id']) && empty($v['exit_type'])) {
+                    $anyPromoting = true;
+                    break;
+                }
+            }
+            if ($anyPromoting) {
+                $this->form_validation->set_rules('promote_session_id', translate('promote_to_session'), 'required');
+                $this->form_validation->set_rules('promote_class_id', translate('promote_to_class'), 'required|callback_validClass');
+                $this->form_validation->set_rules('promote_section_id', translate('promote_section_id'), 'required|callback_validSection');
+            }
+
             foreach ($items as $key => $value) {
                 if (isset($value['enroll_id'])) {
                     $this->form_validation->set_rules('promote[' . $key . '][roll]', translate('roll'), 'callback_unique_prom_roll');
