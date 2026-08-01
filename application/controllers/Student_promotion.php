@@ -31,9 +31,17 @@ class Student_promotion extends Admin_Controller
         if ($this->input->post()) {
             $this->data['class_id']   = $this->input->post('class_id');
             $this->data['section_id'] = $this->input->post('section_id');
+            $sectionArg = (empty($this->data['section_id'])) ? 'all' : $this->data['section_id'];
             $students = $this->application_model->getStudentListByClassSection(
-                $this->data['class_id'], $this->data['section_id'], $branchID, false, true, false
+                $this->data['class_id'], $sectionArg, $branchID, false, true, false
             );
+            // When loading all sections, group by section name for readability
+            if ($sectionArg === 'all') {
+                usort($students, function ($a, $b) {
+                    $cmp = strcmp($a['section_name'] ?? '', $b['section_name'] ?? '');
+                    return $cmp !== 0 ? $cmp : strcmp($a['register_no'] ?? '', $b['register_no'] ?? '');
+                });
+            }
             $this->data['students'] = $students;
 
             // Batch-fetch all outstanding balances in one query (replaces N+1 per-student calls)
@@ -106,23 +114,33 @@ class Student_promotion extends Admin_Controller
                         $exitType    = (isset($value['exit_type']) && in_array($value['exit_type'], ['left', 'graduated']))
                             ? $value['exit_type'] : '';
                         $leaveStatus = ($exitType !== '') ? 1 : 0;
+
+                        // Per-student current section — correct even when mixed sections are loaded.
+                        // Falls back to the filter's section_id for single-section mode.
+                        $currentSectionID = !empty($value['current_section_id'])
+                            ? (int)$value['current_section_id']
+                            : (int)$pre_section_id;
+
                         if ($leaveStatus == 1) {
                             $promote_class_id = $pre_class_id;
-                            $promote_section_id = $pre_section_id;
+                            $promote_section_id = $currentSectionID;
                         } else {
                             if ($value['class_status'] == 'running') {
                                 $promote_class_id = $pre_class_id;
-                                $promote_section_id = $pre_section_id;
+                                $promote_section_id = $currentSectionID;
                             } else {
                                 $promote_class_id = $promote_classID;
-                                $promote_section_id = $promote_sectionID;
+                                // Per-student auto-matched section (from JS), fallback to global dropdown
+                                $promote_section_id = !empty($value['target_section_id'])
+                                    ? (int)$value['target_section_id']
+                                    : (int)$promote_sectionID;
                             }
                         }
 
                         $promotion_history                  = array();
                         $promotion_history['student_id']    = $value['student_id'];
                         $promotion_history['pre_class']     = $pre_class_id;
-                        $promotion_history['pre_section']   = $pre_section_id;
+                        $promotion_history['pre_section']   = $currentSectionID;
                         $promotion_history['pre_session']   = $pre_session_id;
                         $promotion_history['pro_class']     = $promote_class_id;
                         $promotion_history['pro_section']   = $promote_section_id;
