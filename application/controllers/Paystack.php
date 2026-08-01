@@ -32,9 +32,20 @@ class Paystack extends CI_Controller {
             exit();
         }
 
+        // Acknowledge immediately so Paystack does not retry while we do DB work.
+        // On PHP-FPM (cPanel/Apache), fastcgi_finish_request() sends the response
+        // and lets the script keep running. The flush() path covers Apache mod_php.
+        http_response_code(200);
+        echo json_encode(['status' => 'success', 'message' => 'Payment processed successfully']);
+        if (function_exists('fastcgi_finish_request')) {
+            fastcgi_finish_request();
+        } else {
+            if (ob_get_level()) { ob_end_flush(); }
+            flush();
+        }
+
         $event = json_decode($input);
 
-        //echo json_decode($event);
         log_message('info', $input);
 
         // Handle the event
@@ -159,11 +170,8 @@ class Paystack extends CI_Controller {
                 $this->save_transaction($event);
                 break;
             default:
-                echo 'Received unknown event type ' . $event->event;
+                log_message('info', 'Paystack webhook: unhandled event type ' . $event->event);
         }
-
-        http_response_code(200);
-        echo json_encode(['status' => 'success', 'message' => 'Payment processed successfully']);
     }
 
     private function verify_paystack_signature($payload, $signature) {
@@ -607,29 +615,42 @@ class Paystack extends CI_Controller {
     }
 
     private function save_student_wallet($walletData) {
-        $response = false;
-        $query = $this->db->select('id, payment_gateway_reference, email_address')->like('payment_gateway_reference', $walletData['payment_gateway_reference'])->get('student_wallet');
-        $student_wallet_data = $query->row(); // Returns a single row object
-        if(is_null($student_wallet_data)) {
-            // check student already exist and update amount
-            $queryEmail = $this->db->select('id, payment_gateway_reference, email_address, amount, update_count')->where('email_address', $walletData['email_address'])->get('student_wallet');
-            $existing_student_wallet_data = $queryEmail->row(); // Returns a single row object
-            if($existing_student_wallet_data) {
-                $this->db->where('id', $existing_student_wallet_data->id);
-                log_message('info', 'Student Wallet Amount '.$existing_student_wallet_data->amount.' for '.$walletData['email_address']);
-                $walletData['amount'] = $existing_student_wallet_data->amount + $walletData['amount'];
-                $walletData['payment_gateway_reference'] = $existing_student_wallet_data->payment_gateway_reference.','.$walletData['payment_gateway_reference'];
-                $walletData['update_count'] = $existing_student_wallet_data->update_count + 1;
-                $response = $this->db->update('student_wallet', $walletData);
-            } else {
-                $response = $this->db->insert('student_wallet', $walletData);
-            }
-            // $paystack_log_id = $this->db->insert_id();
+        // Idempotency: bail out if this reference is already recorded (handles webhook retries).
+        $alreadyExists = $this->db->query(
+            'SELECT COUNT(*) AS cnt FROM student_wallet WHERE payment_gateway_reference LIKE CONCAT("%", ?, "%")',
+            [$walletData['payment_gateway_reference']]
+        )->row()->cnt;
+
+        if ($alreadyExists > 0) {
+            log_message('error', 'Student Wallet: reference ' . $walletData['payment_gateway_reference']
+                . ' already recorded for ' . $walletData['email_address']);
+            return false;
+        }
+
+        $existing = $this->db->select('id, payment_gateway_reference, update_count')
+            ->where('email_address', $walletData['email_address'])
+            ->get('student_wallet')->row();
+
+        if ($existing) {
+            // Atomic increment — avoids TOCTOU data loss under concurrent transfers.
+            // amount = amount + $incoming instead of read-PHP-add-write.
+            log_message('info', 'Student Wallet: adding ' . $walletData['amount'] . ' for ' . $walletData['email_address']);
+            $response = $this->db->query(
+                'UPDATE student_wallet
+                 SET amount                    = amount + ?,
+                     payment_gateway_reference = CONCAT(payment_gateway_reference, ",", ?),
+                     update_count              = update_count + 1,
+                     updated_at               = ?
+                 WHERE id = ?',
+                [
+                    $walletData['amount'],
+                    $walletData['payment_gateway_reference'],
+                    $walletData['updated_at'],
+                    $existing->id,
+                ]
+            );
         } else {
-            log_message('error','Payment Gateway Reference '.$student_wallet_data->payment_gateway_reference.' for '.$walletData['email_address'].' already applied');
-            // $this->db->where('id', $student_wallet_data->id);
-            // $walletData['payment_gateway_reference'] = $student_wallet_data->payment_gateway_reference.','.$walletData['payment_gateway_reference'];
-            // $this->db->update('student_wallet', $walletData);
+            $response = $this->db->insert('student_wallet', $walletData);
         }
 
         return $response;
