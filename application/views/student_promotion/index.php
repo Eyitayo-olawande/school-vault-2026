@@ -34,8 +34,9 @@
 						<div class="form-group">
 							<label class="control-label"><?=translate('section')?> <span class="required">*</span></label>
 							<?php
-								$arraySection = $this->app_lib->getSections(set_value('class_id'));
-								echo form_dropdown("section_id", $arraySection, set_value('section_id'), "class='form-control' id='section_id' required
+								$rawSections  = $this->app_lib->getSections(set_value('class_id'));
+								$arraySection = array_merge(["" => "— All Sections —"], (array)$rawSections);
+								echo form_dropdown("section_id", $arraySection, set_value('section_id'), "class='form-control' id='section_id'
 								data-plugin-selectTwo data-width='100%' ");
 							?>
 						</div>
@@ -132,6 +133,7 @@
 									<th><?=translate('student_name')?></th>
 									<th><?=translate('register_no')?></th>
 									<th><?=translate('guardian_name')?></th>
+									<th><?=translate('section')?></th>
 									<th><?=translate('mark_summary')?></th>
 									<th><?=translate('class')?></th>
 									<th><?=translate('roll')?></th>
@@ -170,6 +172,10 @@
 									<td><?php echo $row['register_no'];?></td>
 									<td><?php echo (!empty($row['parent_id']) ? get_type_name_by_id('parent', $row['parent_id']) : 'N/A');?></td>
 									<td>
+										<span class="current-section-name"><?= html_escape($row['section_name'] ?? '') ?></span>
+										<input type="hidden" name="promote[<?=$key?>][current_section_id]" value="<?= (int)($row['section_id'] ?? 0) ?>">
+									</td>
+									<td>
 										<a target="_blank" href="<?php echo base_url('student/profile/' . $row['student_id']);?>" class="btn btn-default btn-circle">
 											<i class="fas fa-eye"></i> <?=translate('view')?>
 										</a>
@@ -182,6 +188,13 @@
 										<div class="radio-custom radio-success radio-inline mt-xs">
 											<input type="radio" class="swa" checked value="promoted" name="promote[<?=$key?>][class_status]" id="promoted<?=$key?>">
 											<label for="promoted<?=$key?>"><?php echo translate('promoted') ?></label>
+										</div>
+										<div class="target-section-wrap" style="margin-top:6px;">
+											<select name="promote[<?=$key?>][target_section_id]"
+												class="form-control input-sm target-section-select"
+												data-current-section="<?= html_escape($row['section_name'] ?? '') ?>">
+												<option value="">— pick target class first —</option>
+											</select>
 										</div>
 									</td>
 									<td>
@@ -231,7 +244,7 @@
 								<?php
 									endforeach;
 								} else {
-									echo '<tr><td colspan="10"><h5 class="text-danger text-center">'.translate('no_information_available').'</td></tr>';
+									echo '<tr><td colspan="11"><h5 class="text-danger text-center">'.translate('no_information_available').'</td></tr>';
 								}
 							?>
 							</tbody>
@@ -263,12 +276,28 @@
 <script type="text/javascript">
 $(document).ready(function () {
 
+	// ── Target-section wrap: show for Promoted, hide for Running / Exit ──────
+	function syncTargetSectionVisibility(row) {
+		var isRunning = row.find('input[value="running"]').is(':checked');
+		var isExit    = row.find('.exit-type-select').val() !== '';
+		row.find('.target-section-wrap').toggle(!isRunning && !isExit);
+	}
+
+	// Running / Promoted radio toggle
+	$(document).on('change', '.swa[type="radio"]', function () {
+		syncTargetSectionVisibility($(this).closest('tr'));
+	});
+
+	// Set initial visibility for each row (Promoted = default, so wrap is shown)
+	$('tbody tr').each(function () { syncTargetSectionVisibility($(this)); });
+
 	// Exit type select: disable row controls when Left or Graduate is chosen
 	$(document).on('change', '.exit-type-select', function () {
 		var row    = $(this).closest('tr');
 		var isExit = $(this).val() !== '';
 		row.find('.swa').prop('disabled', isExit);
 		row.find('.leave-note').toggle(isExit);
+		syncTargetSectionVisibility(row);
 		updatePromoteFieldsState();
 	});
 
@@ -349,17 +378,66 @@ $(document).ready(function () {
 		});
 	});
 
-	// Load sections when class changes
+	// Load sections when target class changes; auto-assign per-student target section by name match
 	$('#class_promote_id').on('change', function() {
 		var classID = $(this).val();
+		if (!classID) return;
 		$.ajax({
 			url: "<?=base_url('ajax/getSectionByClass')?>",
 			type: 'POST',
 			data: { class_id: classID },
-			success: function (data) {
-				$('#section_promote_id').html(data);
+			success: function (html) {
+				$('#section_promote_id').html(html);
+
+				// Build a name→id map from the freshly loaded options
+				var sectionById  = {};  // id   → name
+				var sectionByName = {}; // name → id  (lowercase)
+				var sectionList  = [];
+				$('#section_promote_id option').each(function () {
+					var id   = $(this).val();
+					var name = $.trim($(this).text());
+					if (id) {
+						sectionById[id]              = name;
+						sectionByName[name.toLowerCase()] = id;
+						sectionList.push({ id: id, name: name });
+					}
+				});
+
+				// Build options HTML for per-student selects
+				var optHtml = '<option value="">— select —</option>';
+				$.each(sectionList, function (_, s) {
+					optHtml += '<option value="' + s.id + '">' + s.name + '</option>';
+				});
+
+				// Assign each student's target section by matching their current section name
+				$('.target-section-select').each(function () {
+					var $sel     = $(this);
+					var curName  = ($sel.data('current-section') || '').toLowerCase();
+					$sel.html(optHtml);
+
+					var matchId = sectionByName[curName];
+					if (matchId) {
+						$sel.val(matchId);                       // exact name match (Topaz → Topaz)
+					} else if (sectionList.length === 1) {
+						$sel.val(sectionList[0].id);             // only one choice — auto-select it
+					}
+					// else: leave at "— select —"; user must pick manually
+				});
+
+				// Pre-select the global dropdown to the first auto-matched section, or first option
+				var firstStudentMatch = $('.target-section-select').first().val();
+				if (firstStudentMatch) {
+					$('#section_promote_id').val(firstStudentMatch);
+				}
 			}
 		});
+	});
+
+	// When user manually changes the global "Promote To Section", cascade to all per-student selects.
+	// This covers the single-section case and deliberate overrides (e.g. merging sections).
+	$('#section_promote_id').on('change', function () {
+		var globalVal = $(this).val();
+		$('.target-section-select').val(globalVal);
 	});
 });
 </script>
