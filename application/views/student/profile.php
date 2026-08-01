@@ -555,6 +555,13 @@ $feesActive = isset($student['fees_active']) ? (int)$student['fees_active'] : 1;
             <div class="panel panel-accordion">
 				<div class="panel-heading">
 					<h4 class="panel-title">
+						<?php if (get_permission('invoice', 'is_view')): ?>
+						<div class="auth-pan">
+							<a href="<?=base_url('fees/invoice/' . $student['enrollid'])?>" class="btn btn-default btn-circle">
+								<i class="fas fa-hand-holding-usd"></i> Collect Fees
+							</a>
+						</div>
+						<?php endif; ?>
 						<a class="accordion-toggle" data-toggle="collapse" data-parent="#accordion" href="#fees">
 							<i class="fas fa-money-check"></i> <?=translate('fees')?>
 						</a>

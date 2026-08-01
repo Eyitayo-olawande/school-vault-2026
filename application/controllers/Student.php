@@ -106,7 +106,7 @@ class Student extends Admin_Controller
             $this->form_validation->set_rules('state', translate('state'), 'trim|required');
         }
         if (isset($validArr['student_email'])) {
-            $this->form_validation->set_rules('email', translate('email'), 'trim|required|valid_email');
+            $this->form_validation->set_rules('email', translate('email'), 'trim|required|valid_email|callback_checkEmailUnique');
         }
         if (isset($validArr['student_mobile_no'])) {
             $this->form_validation->set_rules('mobileno', translate('mobile_no'), 'trim|required|numeric');
@@ -821,7 +821,7 @@ class Student extends Admin_Controller
     }
 
     /* validate here, if the check multi admission  email and roll */
-    public function csvCheckExistsData($student_username = '', $roll = '', $registerno = '', $class_id = '', $section_id = '', $branchID = '', $unique_roll)
+    public function csvCheckExistsData($student_username = '', $roll = '', $registerno = '', $class_id = '', $section_id = '', $branchID = '', $unique_roll, $email = '')
     {
         $array = array();
         if (!empty($roll)) {
@@ -859,11 +859,50 @@ class Student extends Admin_Controller
         } else {
             $array['status'] = false;
             $array['message'] = "Register No Is Required.";
-            return $array; 
+            return $array;
+        }
+
+        if ($email !== '') {
+            $exists = $this->db->select('s.id')
+                ->from('student s')
+                ->join('enroll e', 'e.student_id = s.id', 'inner')
+                ->where('s.email', $email)
+                ->where('e.branch_id', $branchID)
+                ->limit(1)
+                ->get();
+            if ($exists->num_rows() > 0) {
+                $array['status'] = false;
+                $array['message'] = 'Email already used by another student in this branch.';
+                return $array;
+            }
         }
 
         $array['status'] = true;
         return $array;
+    }
+
+    // Reject an email that already belongs to another student in the same branch.
+    // Cross-branch siblings legitimately share a family email, so the check is
+    // scoped to the branch being operated on, not globally unique.
+    public function checkEmailUnique($email)
+    {
+        $excludeId = (int)$this->input->post('student_id'); // 0 on add, set on edit
+        $branchID  = $this->application_model->get_branch_id();
+
+        $this->db->select('s.id')
+            ->from('student s')
+            ->join('enroll e', 'e.student_id = s.id', 'inner')
+            ->where('s.email', $email)
+            ->where('e.branch_id', $branchID)
+            ->limit(1);
+        if ($excludeId) {
+            $this->db->where('s.id !=', $excludeId);
+        }
+        if ($this->db->get()->num_rows() > 0) {
+            $this->form_validation->set_message('checkEmailUnique', translate('email') . ' is already registered to another student in this branch.');
+            return false;
+        }
+        return true;
     }
 
     // unique valid username verification is done here
@@ -1432,8 +1471,16 @@ class Student extends Admin_Controller
                         if (count($csv_chk) <= 0) {
                             log_message('info', 'Row Data Fields '. $row['FirstName'] . ' ' . $row['LastName']);
 
-                            //Fetch Student Details with Email
-                            $query = $this->db->select('id')->where('email', $row['StudentEmail'])->get('student');
+                            // Scope by branch so siblings in other branches who share a family
+                            // email don't shadow the intended student (same as csv_import).
+                            $query = $this->db->select('s.id')
+                                ->from('student s')
+                                ->join('enroll e', 'e.student_id = s.id', 'inner')
+                                ->where('s.email', $row['StudentEmail'])
+                                ->where('e.branch_id', $branchID)
+                                ->order_by('e.session_id', 'DESC')
+                                ->limit(1)
+                                ->get();
                             if ($query->row()) {
                                 log_message('info', $row['FirstName'] . ' ' . $row['LastName'] . ' ' . $row['StudentEmail'].' Student Found ');
                                 $student_data = $query->row();
@@ -1628,13 +1675,13 @@ class Student extends Admin_Controller
                         }
                         $csv_chk = array_diff($columnHeaders, $csvData);
                         if (count($csv_chk) <= 0) {
-                            $r = $this->csvCheckExistsData($row['StudentUsername'], $row['Roll'], $row['RegisterNo'], $classID, $sectionID, $branchID, $unique_roll);
+                            $r = $this->csvCheckExistsData($row['StudentUsername'], $row['Roll'], $row['RegisterNo'], $classID, $sectionID, $branchID, $unique_roll, $row['StudentEmail'] ?? '');
                             if ($r['status'] == false) {
                                 $err_msg .= $row['FirstName'] . ' ' . $row['LastName'] . " - Imported Failed : " . $r['message'] . "<br>";
                             } else {
                                 $this->student_model->csvImport($row, $classID, $sectionID, $branchID);
 
-                                $studentRecord = $this->student_model->getStudentByEmail($row['StudentEmail']);
+                                $studentRecord = $this->student_model->getStudentByEmail($row['StudentEmail'], $branchID);
                                 if ($studentRecord) {
                                     log_message('info', $studentRecord->id . ' | '.$row['FirstName'].' '.$row['LastName'].' Student Found for DVA + Fee Processing');
 

@@ -416,10 +416,13 @@ class Student_model extends MY_Model
         return $row;
     }
 
-    public function getStudentByEmail($student_email='')
+    public function getStudentByEmail($student_email = '', $branch_id = null)
     {
-        $queryEmail = $this->db->select('id, email, first_name, last_name')->where('email', $student_email)->get('student');
-        $existing_student = $queryEmail->row(); // Returns a single row object
-        return $existing_student;    
+        $this->db->select('s.id, s.email, s.first_name, s.last_name')->from('student s');
+        if ($branch_id !== null) {
+            $this->db->join('enroll e', 'e.student_id = s.id', 'inner')
+                ->where('e.branch_id', $branch_id);
+        }
+        return $this->db->where('s.email', $student_email)->limit(1)->get()->row();
     }
 }
