@@ -372,20 +372,25 @@ class Paystack extends CI_Controller {
         return $fee_balances;
     }
 
-    // Phase 7: build fee_payment_history inserts using proportional distribution.
-    // Proportional allocation ensures no single fee type is fully cleared while others remain
-    // completely unpaid — each type receives a share proportional to its outstanding balance.
+    // Settle oldest allocations first — clears historical debt before current-term fees.
+    // Parents in Nigeria pay DVA to secure school access (current term), so proportional
+    // distribution left prior-year debt permanently unpaid. Oldest-first ensures the school
+    // recovers bad debt before any surplus reaches the current session.
     private function build_proportional_inserts($fee_balances, $wallet_amount, $wallet_id, $payment_reference, $is_family = false) {
-        $total_outstanding = array_sum(array_column($fee_balances, 'balance'));
-        $to_distribute     = min($wallet_amount, $total_outstanding);
-        $today             = date('Y-m-d');
+        // Sort by allocation_id ASC — lower id = older allocation = settled first.
+        usort($fee_balances, function ($a, $b) {
+            return $a['allocation_id'] - $b['allocation_id'];
+        });
+
+        $remaining = min($wallet_amount, array_sum(array_column($fee_balances, 'balance')));
+        $today     = date('Y-m-d');
 
         $history_inserts = [];
         foreach ($fee_balances as $item) {
-            if ($to_distribute <= 0) { break; }
-            $share = ($total_outstanding > 0) ? ($item['balance'] / $total_outstanding * $to_distribute) : 0;
-            $apply = round(min($item['balance'], $share), 2);
+            if ($remaining <= 0) { break; }
+            $apply = round(min($item['balance'], $remaining), 2);
             if ($apply < 0.01) { continue; }
+            $remaining -= $apply;
 
             $ref_suffix = $is_family
                 ? '_parent' . ($item['student_id'] ?? 0) . '_alloc' . $item['allocation_id'] . '_type' . $item['type_id']

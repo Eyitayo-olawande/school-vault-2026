@@ -46,5 +46,4 @@ INSERT IGNORE INTO `sms_template_details` (`template_id`, `branch_id`, `template
 -- Permissions — add term_dates to the permissions table
 -- (skip if your system auto-discovers controllers)
 -- ============================================================
-INSERT IGNORE INTO `permissions` (`name`, `is_view`, `is_add`, `is_edit`, `is_delete`, `created_at`)
-VALUES ('term_dates', 1, 1, 1, 1, NOW());
+INSERT IGNORE INTO `permission` (`prefix`) VALUES ('term_dates');
