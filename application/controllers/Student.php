@@ -863,16 +863,10 @@ class Student extends Admin_Controller
         }
 
         if ($email !== '') {
-            $exists = $this->db->select('s.id')
-                ->from('student s')
-                ->join('enroll e', 'e.student_id = s.id', 'inner')
-                ->where('s.email', $email)
-                ->where('e.branch_id', $branchID)
-                ->limit(1)
-                ->get();
+            $exists = $this->db->where('email', $email)->limit(1)->get('student');
             if ($exists->num_rows() > 0) {
                 $array['status'] = false;
-                $array['message'] = 'Email already used by another student in this branch.';
+                $array['message'] = 'Email already used by another student.';
                 return $array;
             }
         }
@@ -881,25 +875,17 @@ class Student extends Admin_Controller
         return $array;
     }
 
-    // Reject an email that already belongs to another student in the same branch.
-    // Cross-branch siblings legitimately share a family email, so the check is
-    // scoped to the branch being operated on, not globally unique.
+    // Email must be globally unique across all branches — Paystack DVA ties the
+    // virtual account to the student email, so duplicates break DVA payments.
     public function checkEmailUnique($email)
     {
         $excludeId = (int)$this->input->post('student_id'); // 0 on add, set on edit
-        $branchID  = $this->application_model->get_branch_id();
-
-        $this->db->select('s.id')
-            ->from('student s')
-            ->join('enroll e', 'e.student_id = s.id', 'inner')
-            ->where('s.email', $email)
-            ->where('e.branch_id', $branchID)
-            ->limit(1);
+        $this->db->where('email', $email);
         if ($excludeId) {
-            $this->db->where('s.id !=', $excludeId);
+            $this->db->where('id !=', $excludeId);
         }
-        if ($this->db->get()->num_rows() > 0) {
-            $this->form_validation->set_message('checkEmailUnique', translate('email') . ' is already registered to another student in this branch.');
+        if ($this->db->get('student')->num_rows() > 0) {
+            $this->form_validation->set_message('checkEmailUnique', translate('email') . ' is already registered to another student.');
             return false;
         }
         return true;
