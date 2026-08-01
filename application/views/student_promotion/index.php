@@ -269,6 +269,7 @@ $(document).ready(function () {
 		var isExit = $(this).val() !== '';
 		row.find('.swa').prop('disabled', isExit);
 		row.find('.leave-note').toggle(isExit);
+		updatePromoteFieldsState();
 	});
 
 	// Select-all exit type buttons in the column header
@@ -276,6 +277,31 @@ $(document).ready(function () {
 		var val = $(this).data('value');
 		$('.exit-type-select').val(val).trigger('change');
 	});
+
+	// Dim/un-require the Promote To Session/Class/Section fields when every
+	// selected student has an exit type (all leaving — no promotion needed).
+	function updatePromoteFieldsState() {
+		var anyPromoting = false;
+		$('.exit-type-select').each(function () {
+			if ($(this).val() === '') { anyPromoting = true; return false; }
+		});
+		var $promoteFields = $('#session_id, #class_promote_id, #section_promote_id');
+		var $labels = $promoteFields.closest('.form-group').find('label');
+		if (!anyPromoting) {
+			$promoteFields.prop('disabled', true).closest('.form-group').css('opacity', 0.4);
+			$labels.find('.required').hide();
+			$('#promoteFieldsNote').show();
+		} else {
+			$promoteFields.prop('disabled', false).closest('.form-group').css('opacity', 1);
+			$labels.find('.required').show();
+			$('#promoteFieldsNote').hide();
+		}
+	}
+	// Inject a note element once
+	$('<p id="promoteFieldsNote" class="text-muted" style="display:none; font-size:12px; margin-top:4px;">' +
+		'<i class="fas fa-info-circle"></i> Not required — all students are set to Graduate or Left.' +
+	'</p>').insertAfter($('#section_promote_id').closest('.col-md-4'));
+	updatePromoteFieldsState();
 
 	// B: Toggle per-term fee breakdown
 	$(document).on('click', '.toggle-breakdown', function(e) {
