@@ -1,5 +1,8 @@
 uploads/*
 !uploads/.htaccess
+
+# DB sync — token is a secret, never commit it
+sync/.token
 application/logs/*.php
 application/logs/*.txt
 application/cache/*

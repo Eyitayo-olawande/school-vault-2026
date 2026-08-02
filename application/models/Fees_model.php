@@ -373,7 +373,7 @@ class Fees_model extends MY_Model
         $this->datatables->join('section as se', 'se.id = e.section_id', 'left');
         $this->datatables->where('fa.session_id', get_session_id());
         // student.active column does not exist in this schema — omitted
-        $this->datatables->where('fa.branch_id', $branchID);
+        $this->datatables->where('e.branch_id', $branchID);
         if (!empty($class_id)) {
             $this->datatables->where('e.class_id', $class_id);
         }
