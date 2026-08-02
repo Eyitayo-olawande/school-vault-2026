@@ -401,11 +401,18 @@ class Userrole extends User_Controller
             ),
         );
         $stu = $this->userrole_model->getStudentDetails();
+        if (empty($stu)) {
+            $this->session->set_flashdata('error', translate('no_fees_have_been_allocated'));
+            redirect('userrole/dashboard');
+            return;
+        }
         $this->data['config'] = $this->get_payment_config();
         $this->data['getUser'] = $this->userrole_model->getUserDetails();
         $this->data['getOfflinePaymentsConfig'] = $this->userrole_model->getOfflinePaymentsConfig();
-        $this->data['invoice'] = $this->fees_model->getInvoiceStatus($stu['student_id']);
-        $this->data['basic'] = $this->fees_model->getInvoiceBasic($stu['student_id']);
+        // Show all sessions: status and allocations cover every session, not just current.
+        $this->data['invoice']      = $this->fees_model->getInvoiceStatusAllSessions($stu['student_id']);
+        $this->data['basic']        = $this->fees_model->getInvoiceBasic($stu['enroll_id']);
+        $this->data['allocations']  = $this->fees_model->getInvoiceDetailsAllSessions($stu['student_id']);
         $this->data['title'] = translate('fees_history');
         $this->data['main_menu'] = 'fees';
         $this->data['sub_page'] = 'userrole/collect';

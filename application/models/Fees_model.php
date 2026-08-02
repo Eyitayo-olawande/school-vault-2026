@@ -182,22 +182,30 @@ class Fees_model extends MY_Model
         $actualEnrollID = $enrollRow ? $enrollRow->id : 0;
 
         // calculation total transport fee
-        $this->db->select("IFNULL(SUM(transport_stoppage_point.route_fare), 0) as amount");
-        $this->db->from('transport_fee_details');
-        $this->db->join('transport_stoppage_point', 'transport_stoppage_point.id = transport_fee_details.stoppage_point_id', 'inner');
-        $this->db->where('transport_fee_details.enroll_id', $actualEnrollID);
-        $trans_amount = $this->db->get()->row()->amount;
+        $trans_amount = 0;
+        $has_transport = $this->db->table_exists('transport_fee_details') && $this->db->table_exists('transport_stoppage_point');
+        if ($has_transport) {
+            $this->db->select("IFNULL(SUM(transport_stoppage_point.route_fare), 0) as amount");
+            $this->db->from('transport_fee_details');
+            $this->db->join('transport_stoppage_point', 'transport_stoppage_point.id = transport_fee_details.stoppage_point_id', 'inner');
+            $this->db->where('transport_fee_details.enroll_id', $actualEnrollID);
+            $trans_amount = $this->db->get()->row()->amount;
+        }
 
         // calculation payment history
         $this->db->select("IFNULL(SUM(fee_payment_history.amount), 0) as amount, IFNULL(SUM(fee_payment_history.discount), 0) as discount, IFNULL(SUM(fee_payment_history.fine), 0) as fine");
         $this->db->from("fee_payment_history");
         $this->db->join("fee_allocation", "fee_allocation.id = fee_payment_history.allocation_id", "left");
-        $this->db->join("transport_fee_details", "transport_fee_details.id = fee_payment_history.transport_fee_details_id", "left");
+        if ($has_transport) {
+            $this->db->join("transport_fee_details", "transport_fee_details.id = fee_payment_history.transport_fee_details_id", "left");
+        }
         $this->db->where("fee_allocation.student_id", $enrollID);
         $this->db->where("fee_allocation.session_id", $sessionID);
-        $this->db->or_group_start();
-        $this->db->where("transport_fee_details.enroll_id", $actualEnrollID);
-        $this->db->group_end();
+        if ($has_transport) {
+            $this->db->or_group_start();
+            $this->db->where("transport_fee_details.enroll_id", $actualEnrollID);
+            $this->db->group_end();
+        }
         $paid = $this->db->get()->row_array();
 
         if (($paid['amount'] + $paid['discount']) == 0) {
@@ -307,7 +315,6 @@ class Fees_model extends MY_Model
 
     public function getInvoiceBasic($enrollID = '')
     {
-        $sessionID = get_session_id();
         $this->db->select('s.id,s.register_no,e.branch_id,e.id as enroll_id,s.first_name,s.last_name,s.stoppage_point_id,s.email as student_email,s.current_address as student_address,c.name as class_name,b.school_name,b.email as school_email,b.mobileno as school_mobileno,b.address as school_address,p.father_name,se.name as section_name');
         $this->db->from('enroll as e');
         $this->db->join('student as s', 's.id = e.student_id', 'inner');
@@ -318,9 +325,43 @@ class Fees_model extends MY_Model
         if (!is_superadmin_loggedin()) {
             $this->db->where('e.branch_id', get_loggedin_branch_id());
         }
+        // e.id uniquely identifies one enroll row; no session filter needed.
         $this->db->where('e.id', $enrollID);
-        $this->db->where('e.session_id', $sessionID);
         return $this->db->get()->row_array();
+    }
+
+    /**
+     * Like getInvoiceStatus() but aggregates across all sessions.
+     * Used by the parent portal so parents see their complete outstanding balance.
+     */
+    public function getInvoiceStatusAllSessions($enrollID = '')
+    {
+        $sql = "SELECT
+                    SUM(CASE WHEN ft.system=1 THEN fa.prev_due ELSE fgd.amount END) AS total,
+                    MIN(fa.id) AS inv_no
+                FROM fee_allocation fa
+                LEFT JOIN fee_groups_details fgd ON fgd.fee_groups_id = fa.group_id
+                LEFT JOIN fees_type ft ON ft.id = fgd.fee_type_id
+                WHERE fa.student_id = " . $this->db->escape($enrollID);
+        $balance  = $this->db->query($sql)->row_array();
+
+        $sql2 = "SELECT
+                     IFNULL(SUM(fph.amount),   0) AS paid,
+                     IFNULL(SUM(fph.discount), 0) AS discount
+                 FROM fee_payment_history fph
+                 JOIN fee_allocation fa ON fa.id = fph.allocation_id
+                 WHERE fa.student_id = " . $this->db->escape($enrollID);
+        $paid = $this->db->query($sql2)->row_array();
+
+        $total     = (float) $balance['total'];
+        $totalPaid = (float) $paid['paid'] + (float) $paid['discount'];
+        $invNo     = empty($balance['inv_no']) ? 0 : str_pad($balance['inv_no'], 4, '0', STR_PAD_LEFT);
+
+        if ($totalPaid == 0)          $status = 'unpaid';
+        elseif ($totalPaid >= $total) $status = 'total';
+        else                          $status = 'partly';
+
+        return ['status' => $status, 'invoice_no' => $invNo];
     }
 
     public function getStudentFeeDeposit($allocationID, $typeID)

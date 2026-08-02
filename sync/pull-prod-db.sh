@@ -12,38 +12,25 @@ set -euo pipefail
 
 # ── Config — edit SSH_HOST to your server's SSH hostname or IP ───────────────
 SSH_USER="clemmyschools"
-SSH_HOST="${SCHOOLVAULT_SSH_HOST:-}"          # set env var, or hardcode below
-# SSH_HOST="your-server-hostname-or-ip"       # uncomment and fill in if needed
-SSH_KEY="/Users/eyitayofalana/.ssh/id_ed25519"
-REMOTE_APP_ROOT="~"                           # web root (home dir on this host)
+SSH_HOST="nc-ph-1918-75.designstreamsltd.com"
+SSH_KEY="/Users/eyitayofalana/.ssh/id_ed25519_schoolvault"
+REMOTE_APP_ROOT="~"                           # web root is home dir on this host
 
 LOCAL_DB="schoolvault-4-jul-26"
 MYSQL_BIN="/Applications/XAMPP/xamppfiles/bin/mysql"
 DUMP_FILE="/tmp/schoolvault_prod_$(date +%Y%m%d_%H%M%S).sql"
 
-# ── Validate SSH host ─────────────────────────────────────────────────────────
-if [[ -z "$SSH_HOST" ]]; then
-    echo "ERROR: Set your SSH hostname."
-    echo "  Option 1 — env var:  SCHOOLVAULT_SSH_HOST=your-host bash pull-prod-db.sh"
-    echo "  Option 2 — edit SSH_HOST in this script directly"
-    exit 1
-fi
-
 SSH_CMD="ssh -i $SSH_KEY -o StrictHostKeyChecking=no ${SSH_USER}@${SSH_HOST}"
 
-# ── Read prod DB credentials from server's CI config ─────────────────────────
+# ── Read prod DB credentials by fetching and parsing CI config locally ────────
 echo "→ Reading production DB credentials…"
-DB_INFO=$($SSH_CMD "php -r \"
-  define('BASEPATH','dummy');
-  \\\$db=[]; \\\$active_group='default'; \\\$query_builder=true;
-  require '${REMOTE_APP_ROOT}/application/config/database.php';
-  \\\$c=\\\$db['default'];
-  echo \\\$c['username'].'|'.\\\$c['password'].'|'.\\\$c['database'];
-\"")
+DB_CONFIG=$($SSH_CMD "cat ~/application/config/database.php")
+DB_USER=$(echo "$DB_CONFIG" | sed -n "s/.*'username'[[:space:]]*=>[[:space:]]*'\([^']*\)'.*/\1/p" | head -1)
+DB_PASS=$(echo "$DB_CONFIG" | sed -n "s/.*'password'[[:space:]]*=>[[:space:]]*'\([^']*\)'.*/\1/p" | head -1)
+DB_NAME=$(echo "$DB_CONFIG" | sed -n "s/.*'database'[[:space:]]*=>[[:space:]]*'\([^']*\)'.*/\1/p" | head -1)
 
-IFS='|' read -r DB_USER DB_PASS DB_NAME <<< "$DB_INFO"
 if [[ -z "$DB_NAME" ]]; then
-    echo "ERROR: Could not read production DB credentials"
+    echo "ERROR: Could not parse production DB credentials from config"
     exit 1
 fi
 echo "   Database: $DB_NAME (user: $DB_USER)"
@@ -77,7 +64,8 @@ echo "→ Dropping and recreating local DB: $LOCAL_DB"
 "
 
 echo "→ Importing…"
-"$MYSQL_BIN" -u root "$LOCAL_DB" < "$DUMP_FILE"
+# Strip MariaDB-specific /*M!...*/ comments that MySQL client rejects
+grep -v '^/\*M!' "$DUMP_FILE" | "$MYSQL_BIN" -u root "$LOCAL_DB"
 
 echo "→ Cleaning up"
 rm -f "$DUMP_FILE"

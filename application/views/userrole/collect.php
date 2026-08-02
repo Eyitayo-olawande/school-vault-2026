@@ -1,6 +1,6 @@
 <?php
 $currency_symbol = $global_config['currency_symbol'];
-$allocations = $this->fees_model->getInvoiceDetails($basic['id']);
+// $allocations is provided by the controller (all sessions). No model call here.
 $extINTL = extension_loaded('intl');
 if ($extINTL == true) {
 	$spellout = new NumberFormatter("en", NumberFormatter::SPELLOUT);
@@ -115,6 +115,7 @@ if (count($allocations)) {
 									<tbody>
 										<?php
 											$group = array();
+											$seen_sessions = array();
 											$count = 1;
 											$total_fine = 0;
 											$total_discount = 0;
@@ -123,6 +124,10 @@ if (count($allocations)) {
 											$total_amount = 0;
 											$typeData = array('' => translate('select'));
 											foreach ($allocations as $row) {
+												// This fee was carried forward into a later session as "Prev Balance: …".
+												// The newer session already shows the restated amount; skip here to avoid
+												// counting the same debt twice.
+												if (!empty($row['carried_forward'])) { continue; }
 												$deposit = $this->fees_model->getStudentFeeDeposit($row['allocation_id'], $row['fee_type_id']);
 												$type_discount = $deposit['total_discount'];
 												$type_fine = $deposit['total_fine'];
@@ -137,11 +142,19 @@ if (count($allocations)) {
 												 	$typeData[$row['allocation_id'] . "|" . $row['fee_type_id']] = $row['name'];
 												}
 											?>
-										<?php if(!in_array($row['group_id'], $group)) { 
-											$group[] = $row['group_id'];
+										<?php if (!in_array($row['session_id'], $seen_sessions)) {
+											$seen_sessions[] = $row['session_id'];
+											$group = array(); // reset fee-group tracking for each new session
+											?>
+										<tr style="background:#f0f4ff;">
+											<td colspan="9"><strong><?= htmlspecialchars($row['school_year'] ?? '') ?></strong></td>
+										</tr>
+										<?php } ?>
+										<?php if(!in_array($row['group_id'] . '_' . $row['session_id'], $group)) {
+											$group[] = $row['group_id'] . '_' . $row['session_id'];
 											?>
 										<tr>
-											<td class="group" colspan="9"><strong><?php echo get_type_name_by_id('fee_groups', $row['group_id']) ?></strong><img class="group" src="<?php echo base_url('assets/images/arrow.png') ?>"></td>
+											<td class="group" colspan="9"><strong><?= htmlspecialchars(!empty($row['group_name']) ? $row['group_name'] : get_type_name_by_id('fee_groups', $row['group_id'])) ?></strong><img class="group" src="<?php echo base_url('assets/images/arrow.png') ?>"></td>
 										</tr>
 										<?php } ?>
 										<tr>
@@ -305,8 +318,8 @@ if (count($allocations)) {
 									</thead>
 									<tbody>
 										<?php
-										$allocations = $this->db->where(array('student_id' => $basic['id'], 'session_id' => get_session_id()))->get('fee_allocation')->result_array();
-										foreach ($allocations as $allRow) {
+										$hist_allocs = $this->db->where('student_id', $basic['id'])->order_by('id', 'ASC')->get('fee_allocation')->result_array();
+										foreach ($hist_allocs as $allRow) {
 											$historys = $this->fees_model->getPaymentHistory($allRow['id'], $allRow['group_id']);
 											foreach ($historys as $row) {
 										?>

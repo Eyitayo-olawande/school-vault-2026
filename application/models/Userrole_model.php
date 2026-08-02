@@ -97,7 +97,8 @@ class Userrole_model extends MY_Model
         } elseif (is_parent_loggedin()) {
             $studentID = get_activeChildren_id();
         }
-        $this->db->select('CONCAT_WS(" ",s.first_name, s.last_name) as fullname,s.email as student_email,s.register_no,e.branch_id,e.id as enroll_id,e.student_id,s.hostel_id,s.room_id,s.route_id,s.vehicle_id,e.class_id,e.section_id,c.name as class_name,se.name as section_name,b.school_name,b.email as school_email,b.mobileno as school_mobileno,b.address as school_address');
+        $sel = 'CONCAT_WS(" ",s.first_name, s.last_name) as fullname,s.email as student_email,s.register_no,e.branch_id,e.id as enroll_id,e.student_id,s.hostel_id,s.room_id,s.route_id,s.vehicle_id,e.class_id,e.section_id,c.name as class_name,se.name as section_name,b.school_name,b.email as school_email,b.mobileno as school_mobileno,b.address as school_address';
+        $this->db->select($sel);
         $this->db->from('enroll as e');
         $this->db->join('student as s', 's.id = e.student_id', 'inner');
         $this->db->join('branch as b', 'b.id = e.branch_id', 'left');
@@ -105,6 +106,19 @@ class Userrole_model extends MY_Model
         $this->db->join('section as se', 'se.id = e.section_id', 'left');
         $this->db->where('s.id', $studentID);
         $this->db->where('e.session_id', $sessionID);
+        $result = $this->db->get()->row_array();
+        if (!empty($result)) return $result;
+
+        // Student not enrolled in current session — fall back to most recent enrollment.
+        $this->db->select($sel);
+        $this->db->from('enroll as e');
+        $this->db->join('student as s', 's.id = e.student_id', 'inner');
+        $this->db->join('branch as b', 'b.id = e.branch_id', 'left');
+        $this->db->join('class as c', 'c.id = e.class_id', 'left');
+        $this->db->join('section as se', 'se.id = e.section_id', 'left');
+        $this->db->where('s.id', $studentID);
+        $this->db->order_by('e.session_id', 'DESC');
+        $this->db->limit(1);
         return $this->db->get()->row_array();
     }
 
