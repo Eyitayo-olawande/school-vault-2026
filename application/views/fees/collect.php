@@ -132,6 +132,7 @@ if ($extINTL == true) {
 								<tbody>
 									<?php
 										$group = array();
+										$seen_sessions = array();
 										$count = 1;
 										$total_fine = 0;
 										$fully_total_fine = 0;
@@ -140,8 +141,9 @@ if ($extINTL == true) {
 										$total_balance = 0;
 										$total_amount = 0;
 										$typeData = array('' => translate('select'));
-										$allocations = $this->fees_model->getInvoiceDetails($basic['id']);
+										// \$allocations provided by controller (all sessions)
 										foreach ($allocations as $row) {
+											if (!empty($row['carried_forward'])) { continue; }
 											$deposit = $this->fees_model->getStudentFeeDeposit($row['allocation_id'], $row['fee_type_id']);
 											$type_discount = $deposit['total_discount'];
 											$type_fine = $deposit['total_fine'];
@@ -347,8 +349,8 @@ if ($extINTL == true) {
 								</thead>
 								<tbody>
 									<?php
-									$allocations = $this->db->where(array('student_id' => $basic['id'], 'session_id' => get_session_id()))->get('fee_allocation')->result_array();
-									foreach ($allocations as $allRow) {
+									$hist_allocs = $this->db->where('student_id', $basic['id'])->order_by('id', 'ASC')->get('fee_allocation')->result_array();
+									foreach ($hist_allocs as $allRow) {
 										$historys = $this->fees_model->getPaymentHistory($allRow['id'], $allRow['group_id']);
 										foreach ($historys as $row) {
 									?>

@@ -709,7 +709,8 @@ class Fees extends Admin_Controller
         if (moduleIsEnabled('transport')) {
             $this->data['transport_fees'] = $this->fees_model->getStudentTransportFees($enrollID, $basic['stoppage_point_id']);
         }
-        $this->data['invoice']           = $this->fees_model->getInvoiceStatus($basic['id']);
+        $this->data['invoice']           = $this->fees_model->getInvoiceStatusAllSessions($basic['id']);
+        $this->data['allocations']       = $this->fees_model->getInvoiceDetailsAllSessions($basic['id']);
         $this->data['scholarship']       = $this->fees_model->getStudentScholarship($basic['id']);
         $this->data['scholarship_types'] = $this->fees_model->getScholarshipTypes($basic['branch_id']);
         $this->data['basic'] = $basic;
