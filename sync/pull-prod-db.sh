@@ -14,7 +14,7 @@ set -euo pipefail
 SSH_USER="clemmyschools"
 SSH_HOST="nc-ph-1918-75.designstreamsltd.com"
 SSH_KEY="/Users/eyitayofalana/.ssh/id_ed25519_schoolvault"
-REMOTE_APP_ROOT="~"                           # web root is home dir on this host
+REMOTE_APP_ROOT="~/schoolvault.clemmyschools.com"  # actual web root subdirectory
 
 LOCAL_DB="schoolvault-4-jul-26"
 MYSQL_BIN="/Applications/XAMPP/xamppfiles/bin/mysql"
@@ -24,7 +24,7 @@ SSH_CMD="ssh -i $SSH_KEY -o StrictHostKeyChecking=no ${SSH_USER}@${SSH_HOST}"
 
 # ── Read prod DB credentials by fetching and parsing CI config locally ────────
 echo "→ Reading production DB credentials…"
-DB_CONFIG=$($SSH_CMD "cat ~/application/config/database.php")
+DB_CONFIG=$($SSH_CMD "cat $REMOTE_APP_ROOT/application/config/database.php")
 DB_USER=$(echo "$DB_CONFIG" | sed -n "s/.*'username'[[:space:]]*=>[[:space:]]*'\([^']*\)'.*/\1/p" | head -1)
 DB_PASS=$(echo "$DB_CONFIG" | sed -n "s/.*'password'[[:space:]]*=>[[:space:]]*'\([^']*\)'.*/\1/p" | head -1)
 DB_NAME=$(echo "$DB_CONFIG" | sed -n "s/.*'database'[[:space:]]*=>[[:space:]]*'\([^']*\)'.*/\1/p" | head -1)
