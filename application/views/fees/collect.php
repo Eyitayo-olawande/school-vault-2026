@@ -132,6 +132,7 @@ if ($extINTL == true) {
 								<tbody>
 									<?php
 										$group = array();
+										$seen_sessions = array();
 										$count = 1;
 										$total_fine = 0;
 										$fully_total_fine = 0;
@@ -140,8 +141,9 @@ if ($extINTL == true) {
 										$total_balance = 0;
 										$total_amount = 0;
 										$typeData = array('' => translate('select'));
-										$allocations = $this->fees_model->getInvoiceDetails($basic['id']);
+										// $allocations provided by controller (all sessions via getInvoiceDetailsAllSessions)
 										foreach ($allocations as $row) {
+											if (!empty($row['carried_forward'])) { continue; }
 											$deposit = $this->fees_model->getStudentFeeDeposit($row['allocation_id'], $row['fee_type_id']);
 											$type_discount = $deposit['total_discount'];
 											$type_fine = $deposit['total_fine'];
@@ -160,11 +162,19 @@ if ($extINTL == true) {
 									            $fully_total_fine += $fine;
 											}
 										?>
-										<?php if(!in_array($row['group_id'], $group)) { 
-											$group[] = $row['group_id'];
+										<?php if (!in_array($row['session_id'], $seen_sessions)) {
+											$seen_sessions[] = $row['session_id'];
+											$group = array(); // reset group tracking for new session
+										?>
+										<tr style="background:#f0f4ff;">
+											<td colspan="10"><strong><?= htmlspecialchars($row['school_year'] ?? '') ?></strong></td>
+										</tr>
+										<?php } ?>
+										<?php if(!in_array($row['group_id'] . '_' . $row['session_id'], $group)) {
+											$group[] = $row['group_id'] . '_' . $row['session_id'];
 											?>
 										<tr>
-											<td class="group" colspan="10"><strong><?php echo get_type_name_by_id('fee_groups', $row['group_id']) ?></strong><img class="group" src="<?php echo base_url('assets/images/arrow.png') ?>"></td>
+											<td class="group" colspan="10"><strong><?php echo htmlspecialchars(!empty($row['group_name']) ? $row['group_name'] : get_type_name_by_id('fee_groups', $row['group_id'])) ?></strong><img class="group" src="<?php echo base_url('assets/images/arrow.png') ?>"></td>
 										</tr>
 									<?php } ?>
 									<tr>
@@ -347,7 +357,8 @@ if ($extINTL == true) {
 								</thead>
 								<tbody>
 									<?php
-									$allocations = $this->db->where(array('student_id' => $basic['id'], 'session_id' => get_session_id()))->get('fee_allocation')->result_array();
+									$hist_allocs = $this->db->where('student_id', $basic['id'])->order_by('id', 'ASC')->get('fee_allocation')->result_array();
+									$allocations = $hist_allocs;
 									foreach ($allocations as $allRow) {
 										$historys = $this->fees_model->getPaymentHistory($allRow['id'], $allRow['group_id']);
 										foreach ($historys as $row) {
