@@ -1413,6 +1413,10 @@
                             <li class="<?php if ($sub_page == 'fees/due_invoice') echo 'nav-active';?>">
                                 <a href="<?=base_url('fees/due_invoice')?>"><span><i class="fas fa-caret-right"></i><?=translate('due_fees_invoice')?></span></a>
                             </li>
+                            <?php } if(get_permission('invoice', 'is_view')) { ?>
+                            <li class="<?php if ($sub_page == 'fees/student_without_invoice_list') echo 'nav-active';?>">
+                                <a href="<?=base_url('fees/student_without_invoice_list')?>"><span><i class="fas fa-caret-right"></i>Students Without Fees</span></a>
+                            </li>
                             <?php } if(get_permission('fees_reminder', 'is_view')) { ?>
                             <li class="<?php if ($sub_page == 'fees/reminder') echo 'nav-active';?>">
                                 <a href="<?=base_url('fees/reminder')?>"><span><i class="fas fa-caret-right"></i><?=translate('fees_reminder')?></span></a>
@@ -1523,6 +1527,9 @@
                                     </li>
                                     <li class="<?php if ($sub_page == 'student/sibling_report') echo 'nav-active';?>">
                                         <a href="<?=base_url('student/sibling_report')?>"><?=translate('sibling_report')?></a>
+                                    </li>
+                                    <li class="<?php if ($sub_page == 'student/new_intake_report') echo 'nav-active';?>">
+                                        <a href="<?=base_url('student/new_intake_report')?>">New Intake Report</a>
                                     </li>
                                 </ul>
                             </li>
