@@ -162,8 +162,16 @@ if ($extINTL == true) {
 									            $fully_total_fine += $fine;
 											}
 										?>
-										<?php if(!in_array($row['group_id'], $group)) { 
-											$group[] = $row['group_id'];
+										<?php if (!in_array($row['session_id'], $seen_sessions)) {
+											$seen_sessions[] = $row['session_id'];
+											$group = array();
+											?>
+										<tr style="background:#f0f4ff;">
+											<td colspan="10"><strong><?= htmlspecialchars($row['school_year'] ?? '') ?></strong></td>
+										</tr>
+										<?php } ?>
+										<?php if(!in_array($row['group_id'] . '_' . $row['session_id'], $group)) {
+											$group[] = $row['group_id'] . '_' . $row['session_id'];
 											?>
 										<tr>
 											<td class="group" colspan="10"><strong><?php echo get_type_name_by_id('fee_groups', $row['group_id']) ?></strong><img class="group" src="<?php echo base_url('assets/images/arrow.png') ?>"></td>

@@ -1463,12 +1463,13 @@ class Fees extends Admin_Controller
             if (empty($basic))
                 ajax_access_denied();
 
-            $allocations = $this->fees_model->getInvoiceDetails($basic['id']);
+            $allocations = $this->fees_model->getInvoiceDetailsAllSessions($basic['id']);
             $totalBalance = 0;
             $totalFine = 0;
             $allPaymentIDs = [];
 
             foreach ($allocations as $row) {
+                if (!empty($row['carried_forward'])) { continue; }
                 $fine = $this->fees_model->feeFineCalculation($row['allocation_id'], $row['fee_type_id']);
                 $b = $this->fees_model->getBalance($row['allocation_id'], $row['fee_type_id']);
                 $fine = abs($fine - $b['fine']);
