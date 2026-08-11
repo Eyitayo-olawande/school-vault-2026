@@ -218,6 +218,36 @@ class Fees_model extends MY_Model
         return array('status' => $status, 'invoice_no' => $invNo);
     }
 
+    public function getInvoiceStatusAllSessions($enrollID = '')
+    {
+        $sql = "SELECT
+                    SUM(CASE WHEN ft.system=1 THEN fa.prev_due ELSE fgd.amount END) AS total,
+                    MIN(fa.id) AS inv_no
+                FROM fee_allocation fa
+                LEFT JOIN fee_groups_details fgd ON fgd.fee_groups_id = fa.group_id
+                LEFT JOIN fees_type ft ON ft.id = fgd.fee_type_id
+                WHERE fa.student_id = " . $this->db->escape($enrollID);
+        $balance = $this->db->query($sql)->row_array();
+
+        $sql2 = "SELECT
+                     IFNULL(SUM(fph.amount),   0) AS paid,
+                     IFNULL(SUM(fph.discount), 0) AS discount
+                 FROM fee_payment_history fph
+                 JOIN fee_allocation fa ON fa.id = fph.allocation_id
+                 WHERE fa.student_id = " . $this->db->escape($enrollID);
+        $paid = $this->db->query($sql2)->row_array();
+
+        $total     = (float) $balance['total'];
+        $totalPaid = (float) $paid['paid'] + (float) $paid['discount'];
+        $invNo     = empty($balance['inv_no']) ? 0 : str_pad($balance['inv_no'], 4, '0', STR_PAD_LEFT);
+
+        if ($totalPaid == 0)          $status = 'unpaid';
+        elseif ($totalPaid >= $total) $status = 'total';
+        else                          $status = 'partly';
+
+        return ['status' => $status, 'invoice_no' => $invNo];
+    }
+
     public function getInvoiceDetails($enrollID = '')
     {
         $sql = "SELECT `fee_allocation`.`group_id`,`fee_allocation`.`prev_due`,`fee_allocation`.`id` as `allocation_id`, `fees_type`.`name`, `fees_type`.`system`, `fee_groups_details`.`amount`, `fee_groups_details`.`due_date`, `fee_groups_details`.`fee_type_id` FROM `fee_allocation` LEFT JOIN

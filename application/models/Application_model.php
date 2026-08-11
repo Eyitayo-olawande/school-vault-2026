@@ -352,8 +352,38 @@ class Application_model extends CI_Model
         log_message('info', $this->db->last_query());
         return $query->result_array();
     }
+    public function getNewIntakeReport($branchID, $sessionID, $classID = 'all', $sectionID = 'all')
+    {
+        $sql = "
+            SELECT
+                CONCAT_WS(' ', s.first_name, s.last_name) AS fullname,
+                s.register_no,
+                s.admission_date,
+                c.name  AS class_name,
+                se.name AS section_name,
+                (SELECT lc.username FROM login_credential lc
+                 WHERE lc.user_id = s.id AND lc.role = 7 LIMIT 1) AS student_login,
+                (SELECT lc.username FROM login_credential lc
+                 WHERE lc.user_id = s.parent_id AND lc.role = 6 LIMIT 1) AS parent_login,
+                dva.account_number         AS dva_account,
+                dva.dedicated_account_bank AS dva_bank
+            FROM enroll e
+            INNER JOIN student s   ON s.id = e.student_id
+            LEFT JOIN class c      ON c.id = e.class_id
+            LEFT JOIN section se   ON se.id = e.section_id
+            LEFT JOIN dedicated_virtual_account dva ON dva.user_id = s.id AND dva.active = 1
+            WHERE e.branch_id  = " . $this->db->escape($branchID) . "
+              AND e.session_id = " . $this->db->escape($sessionID) . "
+              AND (e.is_alumni IS NULL OR e.is_alumni = 0)
+        ";
+        if ($classID !== 'all')   $sql .= " AND e.class_id   = " . $this->db->escape($classID);
+        if ($sectionID !== 'all') $sql .= " AND e.section_id = " . $this->db->escape($sectionID);
+        $sql .= " ORDER BY c.name ASC, se.name ASC, s.register_no ASC";
+        return $this->db->query($sql)->result_array();
+    }
+
     /*
-    SELECT 
+    SELECT
         s.first_name AS student_name,
         (
             SELECT GROUP_CONCAT(e.username SEPARATOR ', ')

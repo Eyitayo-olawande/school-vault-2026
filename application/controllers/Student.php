@@ -1085,6 +1085,34 @@ class Student extends Admin_Controller
     }
 
 
+    public function new_intake_report()
+    {
+        if (!get_permission('student', 'is_view')) {
+            access_denied();
+        }
+        $branchID  = $this->application_model->get_branch_id();
+        $sessionID = get_session_id();
+
+        if ($this->input->post('search')) {
+            if (is_superadmin_loggedin()) {
+                $postedBranch = $this->input->post('branch_id');
+                if (!empty($postedBranch)) {
+                    $branchID = $postedBranch;
+                }
+            }
+            $classID   = $this->input->post('class_id')   ?: 'all';
+            $sectionID = $this->input->post('section_id') ?: 'all';
+            $this->data['students'] = $this->application_model
+                ->getNewIntakeReport($branchID, $sessionID, $classID, $sectionID);
+        }
+
+        $this->data['branch_id'] = $branchID;
+        $this->data['title']     = 'New Intake Report';
+        $this->data['main_menu'] = 'student_repots';
+        $this->data['sub_page']  = 'student/new_intake_report';
+        $this->load->view('layout/index', $this->data);
+    }
+
     /* student login credential list by class and section */
     public function login_credential_reports()
     {

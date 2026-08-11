@@ -2529,9 +2529,11 @@ class Fees extends Admin_Controller
 
     /**
      * Fix duplicate same-term fee allocations.
-     * Finds students with more than one 3rd-term (or any-term) 2025/2026 allocation
-     * of the same fee group name, consolidates payments to the first allocation,
-     * and removes the duplicate allocations.
+     * Scans ALL sessions/terms for students with two or more fee allocations whose
+     * group names share the same term prefix (e.g. "1ST TERM SCHOOL FEES "), which
+     * the allocation guard would normally block.  Keeps the lowest allocation ID,
+     * moves any payments from the duplicate(s) to it, then deletes the duplicates.
+     * Also catches exact-same-group duplicates (same group_id allocated twice).
      * Access: /fees/fix_duplicate_term_allocations
      */
     public function fix_duplicate_term_allocations()
@@ -2540,45 +2542,73 @@ class Fees extends Admin_Controller
             show_error('Forbidden', 403);
         }
 
-        // Find all (keep_id, delete_id) pairs for 2025/2026 same-name 3rd term duplicates
-        $pairs = $this->db->query("
-            SELECT a_keep.id AS keep_id, a_del.id AS delete_id,
-                   s.first_name, s.last_name, s.register_no, fg.name AS fee_group
-            FROM fee_allocation a_keep
-            INNER JOIN fee_groups fg ON fg.id = a_keep.group_id
-                   AND fg.name LIKE '%3RD TERM%2025/2026%'
-                   AND fg.name NOT LIKE '%BUS%'
-                   AND fg.name NOT LIKE '%MEAL%'
-            INNER JOIN enroll e ON e.student_id = a_keep.student_id
-            INNER JOIN student s ON s.id = e.student_id
-            INNER JOIN fee_allocation a_del
-                   ON a_del.student_id = a_keep.student_id
-                  AND a_del.session_id  = a_keep.session_id
-                  AND a_del.id          > a_keep.id
-            INNER JOIN fee_groups fg_del ON fg_del.id = a_del.group_id
-                   AND fg_del.name = fg.name
-            ORDER BY a_keep.id
+        // Fetch every student who has 2+ allocations in the same session.
+        $candidates = $this->db->query("
+            SELECT fa.student_id, fa.session_id
+            FROM fee_allocation fa
+            WHERE fa.group_id NOT IN (
+                SELECT id FROM fee_groups WHERE name LIKE '%BUS%' OR name LIKE '%MEAL%' OR name LIKE '%TRANSPORT%'
+            )
+            GROUP BY fa.student_id, fa.session_id
+            HAVING COUNT(*) > 1
         ")->result_array();
 
         $fixed   = [];
         $skipped = [];
 
-        foreach ($pairs as $pair) {
-            $keepId   = (int)$pair['keep_id'];
-            $deleteId = (int)$pair['delete_id'];
+        foreach ($candidates as $cand) {
+            $stuId  = (int) $cand['student_id'];
+            $sessId = (int) $cand['session_id'];
 
-            // Move payments from duplicate to primary
-            $this->db->set('allocation_id', $keepId)
-                     ->where('allocation_id', $deleteId)
-                     ->update('fee_payment_history');
+            // Get all non-transport allocations for this student+session, oldest first
+            $allocs = $this->db->query("
+                SELECT fa.id AS alloc_id, fg.name AS group_name
+                FROM fee_allocation fa
+                INNER JOIN fee_groups fg ON fg.id = fa.group_id
+                WHERE fa.student_id = {$stuId}
+                  AND fa.session_id  = {$sessId}
+                  AND fg.name NOT LIKE '%BUS%'
+                  AND fg.name NOT LIKE '%MEAL%'
+                  AND fg.name NOT LIKE '%TRANSPORT%'
+                ORDER BY fa.id ASC
+            ")->result_array();
 
-            // Delete the duplicate allocation
-            $deleted = $this->db->where('id', $deleteId)->delete('fee_allocation');
+            // Build prefix → [alloc_ids] map
+            $prefixMap = [];
+            foreach ($allocs as $a) {
+                $prefix = strstr($a['group_name'], '(20', true);
+                if ($prefix === false) { $prefix = $a['group_name']; }
+                $prefix = strtoupper(trim($prefix));
+                $prefixMap[$prefix][] = $a;
+            }
 
-            if ($deleted) {
-                $fixed[] = array_merge($pair, ['status' => 'fixed']);
-            } else {
-                $skipped[] = array_merge($pair, ['status' => 'skipped']);
+            // For each prefix that has more than one allocation, keep lowest, delete rest
+            foreach ($prefixMap as $prefix => $group) {
+                if (count($group) < 2) continue;
+                $keepId = (int) $group[0]['alloc_id'];
+                for ($i = 1; $i < count($group); $i++) {
+                    $deleteId = (int) $group[$i]['alloc_id'];
+                    $student  = $this->db->select('first_name, last_name, register_no')
+                                         ->where('id', $stuId)->get('student')->row_array();
+
+                    // Move payments from duplicate to primary
+                    $this->db->set('allocation_id', $keepId)
+                             ->where('allocation_id', $deleteId)
+                             ->update('fee_payment_history');
+
+                    $deleted = $this->db->where('id', $deleteId)->delete('fee_allocation');
+
+                    $entry = [
+                        'keep_id'    => $keepId,
+                        'delete_id'  => $deleteId,
+                        'first_name' => $student['first_name'] ?? '',
+                        'last_name'  => $student['last_name']  ?? '',
+                        'register_no'=> $student['register_no'] ?? '',
+                        'fee_group'  => $group[$i]['group_name'],
+                    ];
+                    if ($deleted) { $fixed[]   = $entry; }
+                    else          { $skipped[] = $entry; }
+                }
             }
         }
 
