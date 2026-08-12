@@ -58,7 +58,7 @@
 						<?php if (get_permission('student', 'is_edit')): ?>
 							<!-- update link -->
 							<a href="<?php echo base_url('student/profile/' . $row->student_id);?>" class="btn btn-default icon btn-circle" data-toggle="tooltip" data-original-title="<?=translate('details')?>">
-								<i class="far fa-arrow-alt-circle-right"></i>
+								<i class="far fa-arrow-alt-circle-right" style="pointer-events:none"></i>
 							</a>
 						<?php endif; if (get_permission('student', 'is_delete')): ?>
 							<!-- delete link -->
