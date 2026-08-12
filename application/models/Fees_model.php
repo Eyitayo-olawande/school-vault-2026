@@ -626,8 +626,7 @@ class Fees_model extends MY_Model
             $this->db->join('class as c', 'c.id = e.class_id', 'left');
             $this->db->join('section as se', 'se.id = e.section_id', 'left');
             $this->db->join('payment_types as pt', 'pt.id = h.pay_via', 'left');
-            $this->db->where('ff.session_id', $sessionID);
-                $this->db->where('h.date  >=', $start);
+            $this->db->where('h.date  >=', $start);
             $this->db->where('h.date <=', $end);
             $this->db->where('e.branch_id', $branchID);
             if ($onlyFine == true) {
