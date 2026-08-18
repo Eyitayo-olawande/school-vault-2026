@@ -3,7 +3,7 @@ defined('BASEPATH') or exit('No direct script access allowed');
 
 /**
  * @package : Ramom school management system
- * @version : 6.0
+ * @version : 7.0
  * @developed by : RamomCoder
  * @support : ramomcoder@yahoo.com
  * @author url : http://codecanyon.net/user/RamomCoder
@@ -344,6 +344,9 @@ class Onlineexam extends Admin_Controller
             }
             $this->db->where('id', $id);
             $this->db->delete('questions');
+            if ($this->db->affected_rows() > 0) {
+                $this->db->where('question_id', $id)->delete('questions_manage');
+            }
         }
     }
 
@@ -502,6 +505,10 @@ class Onlineexam extends Admin_Controller
             }
             $this->db->where('id', $id);
             $this->db->delete('question_group');
+            if ($this->db->affected_rows() > 0) {
+                // Null out group_id on questions that referenced this group
+                $this->db->where('group_id', $id)->update('questions', ['group_id' => null]);
+            }
         }
     }
 
@@ -569,7 +576,8 @@ class Onlineexam extends Admin_Controller
                     $row['attempt'] = $onlineExam->limits_participation;
                     $row['passing_mark'] = $onlineExam->passing_mark . $percent;
                     $row['exam_fee'] = $exam_fee;
-                   /* $this->sms_model->sendOnlineExam($row);*/
+                    // send email/sms
+                    $this->sms_model->sendOnlineExam($row);
                     $this->email_model->onlineExamPublish($row);
                 }
             }
@@ -698,6 +706,11 @@ class Onlineexam extends Admin_Controller
             }
             if ($this->form_validation->run() == true) {
                 $examID = $this->input->post('exam_id');
+                $examRow = $this->db->select('position_generated')->where('id', $examID)->get('online_exam')->row();
+                if (!empty($examRow) && $examRow->position_generated == 1) {
+                    echo json_encode(['status' => 'fail', 'error' => ['position' => 'Position has already been generated for this exam and cannot be overwritten.']]);
+                    return;
+                }
                 foreach ($remark as $key => $value) {
                     $array = array(); 
                     if (!empty($value['position'])) {
@@ -826,7 +839,7 @@ class Onlineexam extends Admin_Controller
                                 $questionType = 2;
                             if ($questionType == 'true_false') {
                                 $questionType = 3;
-                                if (strtolower($answer) == true) {
+                                if (strtolower($answer) === 'true') {
                                     $answer = 1;
                                 } else {
                                     $answer = 2;
@@ -836,6 +849,15 @@ class Onlineexam extends Admin_Controller
                                 $questionType = 4;
 
                             $answer = str_replace("option_", "", $answer);
+
+                            $csvTerm = isset($column['10']) ? strtoupper(trim($column['10'])) : '';
+                            $validTerms = ['1ST', '2ND', '3RD'];
+                            $csvTerm = in_array($csvTerm, $validTerms) ? $csvTerm : null;
+
+                            $csvCaType = isset($column['11']) ? strtoupper(trim($column['11'])) : '';
+                            $validCaTypes = ['CA1', 'CA2', 'EXAM', 'GENERAL'];
+                            $csvCaType = in_array($csvCaType, $validCaTypes) ? $csvCaType : 'GENERAL';
+
                             $questionsExam[] = array(
                                 'class_id' => $classID,
                                 'section_id' => $sectionID,
@@ -851,6 +873,8 @@ class Onlineexam extends Admin_Controller
                                 'opt_3' => trim($column['7']),
                                 'opt_4' => trim($column['8']),
                                 'answer' => $answer,
+                                'term' => $csvTerm,
+                                'ca_type' => $csvCaType,
                             );
                         }
                     }
