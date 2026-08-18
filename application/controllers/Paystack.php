@@ -336,10 +336,16 @@ class Paystack extends CI_Controller {
 
     // Build an array of outstanding (allocation_id, type_id, balance) for a student.
     // Only the live allocation per fee group is considered — the one with the highest
-    // session_id for this student+group_id pair. Ghost allocations from prior sessions
-    // (e.g. session 4/5 after promotion) are excluded by the NOT EXISTS clause.
-    // ORDER BY session_id ASC enforces payment priority: an earlier session must be
-    // fully cleared before any funds credit a later session.
+    // session_id for this student+group_id pair. Ghost allocations left behind by the
+    // promotion migration (session 4/5) are excluded by the NOT EXISTS clause. Without
+    // it those rows carried the lowest allocation_ids, so build_proportional_inserts
+    // sorted them first and drained the whole payment into a dead allocation while the
+    // live one still showed the fee outstanding.
+    //
+    // Payment priority is NOT enforced here: build_proportional_inserts re-sorts by
+    // allocation_id and settles oldest-first, letting any surplus flow on to later
+    // sessions. Cutting the list off at the earliest unpaid session would strand that
+    // surplus in the wallet instead.
     private function build_fee_balances($student_id) {
         $allocations = $this->db->query("
             SELECT fa.id, fa.group_id, fa.session_id
@@ -355,23 +361,12 @@ class Paystack extends CI_Controller {
         ", [$student_id])->result_array();
 
         $fee_balances = [];
-        $earliest_session_with_balance = null;
-
         foreach ($allocations as $alloc) {
-            $session_id    = (int) $alloc['session_id'];
             $allocation_id = $alloc['id'];
             $group_id      = $alloc['group_id'];
-
-            // Once a balance is found in an earlier session, stop — later sessions
-            // do not receive any funds until the earlier session is fully settled.
-            if ($earliest_session_with_balance !== null && $session_id > $earliest_session_with_balance) {
-                break;
-            }
-
             $groupsDetails = $this->db->select('fee_type_id')
                 ->where('fee_groups_id', $group_id)
                 ->get('fee_groups_details')->result();
-
             foreach ($groupsDetails as $type) {
                 $b       = $this->fees_model->getBalance($allocation_id, $type->fee_type_id);
                 $balance = (float) $b['balance'];
@@ -381,28 +376,30 @@ class Paystack extends CI_Controller {
                     'type_id'       => $type->fee_type_id,
                     'balance'       => $balance,
                 ];
-                if ($earliest_session_with_balance === null) {
-                    $earliest_session_with_balance = $session_id;
-                }
             }
         }
         return $fee_balances;
     }
 
-    // Phase 7: build fee_payment_history inserts using proportional distribution.
-    // Proportional allocation ensures no single fee type is fully cleared while others remain
-    // completely unpaid — each type receives a share proportional to its outstanding balance.
+    // Settle oldest allocations first — clears historical debt before current-term fees.
+    // Parents in Nigeria pay DVA to secure school access (current term), so proportional
+    // distribution left prior-year debt permanently unpaid. Oldest-first ensures the school
+    // recovers bad debt before any surplus reaches the current session.
     private function build_proportional_inserts($fee_balances, $wallet_amount, $wallet_id, $payment_reference, $is_family = false) {
-        $total_outstanding = array_sum(array_column($fee_balances, 'balance'));
-        $to_distribute     = min($wallet_amount, $total_outstanding);
-        $today             = date('Y-m-d');
+        // Sort by allocation_id ASC — lower id = older allocation = settled first.
+        usort($fee_balances, function ($a, $b) {
+            return $a['allocation_id'] - $b['allocation_id'];
+        });
+
+        $remaining = min($wallet_amount, array_sum(array_column($fee_balances, 'balance')));
+        $today     = date('Y-m-d');
 
         $history_inserts = [];
         foreach ($fee_balances as $item) {
-            if ($to_distribute <= 0) { break; }
-            $share = ($total_outstanding > 0) ? ($item['balance'] / $total_outstanding * $to_distribute) : 0;
-            $apply = round(min($item['balance'], $share), 2);
+            if ($remaining <= 0) { break; }
+            $apply = round(min($item['balance'], $remaining), 2);
             if ($apply < 0.01) { continue; }
+            $remaining -= $apply;
 
             $ref_suffix = $is_family
                 ? '_parent' . ($item['student_id'] ?? 0) . '_alloc' . $item['allocation_id'] . '_type' . $item['type_id']
