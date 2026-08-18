@@ -334,22 +334,44 @@ class Paystack extends CI_Controller {
         }
     }
 
-    // Build an array of outstanding (allocation_id, type_id, balance) for a student in the current session.
+    // Build an array of outstanding (allocation_id, type_id, balance) for a student.
+    // Only the live allocation per fee group is considered — the one with the highest
+    // session_id for this student+group_id pair. Ghost allocations from prior sessions
+    // (e.g. session 4/5 after promotion) are excluded by the NOT EXISTS clause.
+    // ORDER BY session_id ASC enforces payment priority: an earlier session must be
+    // fully cleared before any funds credit a later session.
     private function build_fee_balances($student_id) {
-        // No session filter: a promoted student's old-session outstanding fees must
-        // also receive DVA payments. session_id = current only would silently skip
-        // prior-year balances after promotion.
-        $allocations = $this->db
-            ->where('student_id', $student_id)
-            ->get('fee_allocation')->result_array();
+        $allocations = $this->db->query("
+            SELECT fa.id, fa.group_id, fa.session_id
+            FROM fee_allocation fa
+            WHERE fa.student_id = ?
+              AND NOT EXISTS (
+                  SELECT 1 FROM fee_allocation newer
+                  WHERE newer.student_id = fa.student_id
+                    AND newer.group_id   = fa.group_id
+                    AND newer.session_id > fa.session_id
+              )
+            ORDER BY fa.session_id ASC
+        ", [$student_id])->result_array();
 
         $fee_balances = [];
+        $earliest_session_with_balance = null;
+
         foreach ($allocations as $alloc) {
+            $session_id    = (int) $alloc['session_id'];
             $allocation_id = $alloc['id'];
             $group_id      = $alloc['group_id'];
+
+            // Once a balance is found in an earlier session, stop — later sessions
+            // do not receive any funds until the earlier session is fully settled.
+            if ($earliest_session_with_balance !== null && $session_id > $earliest_session_with_balance) {
+                break;
+            }
+
             $groupsDetails = $this->db->select('fee_type_id')
                 ->where('fee_groups_id', $group_id)
                 ->get('fee_groups_details')->result();
+
             foreach ($groupsDetails as $type) {
                 $b       = $this->fees_model->getBalance($allocation_id, $type->fee_type_id);
                 $balance = (float) $b['balance'];
@@ -359,6 +381,9 @@ class Paystack extends CI_Controller {
                     'type_id'       => $type->fee_type_id,
                     'balance'       => $balance,
                 ];
+                if ($earliest_session_with_balance === null) {
+                    $earliest_session_with_balance = $session_id;
+                }
             }
         }
         return $fee_balances;
