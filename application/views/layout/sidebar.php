@@ -1710,7 +1710,7 @@
                                 </ul>
                             </li>
                         <?php }} ?>
-                        <?php if(get_permission('report_card', 'is_view') || get_permission('tabulation_sheet', 'is_view') || get_permission('progress_reports', 'is_view')) { ?>
+                        <?php if(get_permission('report_card', 'is_view') || get_permission('tabulation_sheet', 'is_view') || get_permission('progress_reports', 'is_view') || get_permission('domain_entry', 'is_view') || get_permission('domain_traits', 'is_view') || get_permission('broadsheet', 'is_view') || get_permission('transcript', 'is_view')) { ?>
                             <li class="nav-parent <?php if ($main_menu == 'exam_reports') echo 'nav-expanded nav-active'; ?>">
                                 <a><i class="fas fa-print"></i><span><?php echo translate('examination'); ?></span></a>
                                 <ul class="nav nav-children">
@@ -1730,6 +1730,35 @@
                                     <li class="<?php if ($sub_page == 'exam_progress/marksheet') echo 'nav-active';?>">
                                         <a href="<?=base_url('exam_progress/marksheet')?>">
                                             <span><?=translate('progress') . " " . translate('reports')?></span>
+                                        </a>
+                                    </li>
+                                    <?php } if(get_permission('domain_entry', 'is_view')) { ?>
+                                    <li class="<?php if ($sub_page == 'domain/entry' && isset($type) && $type=='affective') echo 'nav-active';?>">
+                                        <a href="<?=base_url('domain/entry/affective')?>">
+                                            <span>Affective Domain</span>
+                                        </a>
+                                    </li>
+                                    <li class="<?php if ($sub_page == 'domain/entry' && isset($type) && $type=='psychomotor') echo 'nav-active';?>">
+                                        <a href="<?=base_url('domain/entry/psychomotor')?>">
+                                            <span>Psychomotor Domain</span>
+                                        </a>
+                                    </li>
+                                    <?php } if(get_permission('domain_traits', 'is_view')) { ?>
+                                    <li class="<?php if ($sub_page == 'domain/traits') echo 'nav-active';?>">
+                                        <a href="<?=base_url('domain/traits/affective')?>">
+                                            <span>Domain Trait Setup</span>
+                                        </a>
+                                    </li>
+                                    <?php } if(get_permission('broadsheet', 'is_view')) { ?>
+                                    <li class="<?php if ($sub_page == 'broadsheet/index') echo 'nav-active';?>">
+                                        <a href="<?=base_url('broadsheet')?>">
+                                            <span>Broadsheet</span>
+                                        </a>
+                                    </li>
+                                    <?php } if(get_permission('transcript', 'is_view')) { ?>
+                                    <li class="<?php if ($sub_page == 'transcript/index') echo 'nav-active';?>">
+                                        <a href="<?=base_url('transcript')?>">
+                                            <span>Student Transcript</span>
                                         </a>
                                     </li>
                                     <?php } ?>
