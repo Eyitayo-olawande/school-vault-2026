@@ -145,6 +145,24 @@
 								</div>
 							</div>
 							<div class="form-group">
+								<label class="col-md-3 control-label">Term</label>
+								<div class="col-md-6">
+									<?php
+										$arrayTerm = ['' => translate('select'), '1st' => '1st Term', '2nd' => '2nd Term', '3rd' => '3rd Term'];
+										echo form_dropdown("term", $arrayTerm, set_value('term'), "class='form-control' data-plugin-selectTwo data-width='100%' data-minimum-results-for-search='Infinity'");
+									?>
+								</div>
+							</div>
+							<div class="form-group">
+								<label class="col-md-3 control-label">CA Type</label>
+								<div class="col-md-6">
+									<?php
+										$arrayCaType = ['GENERAL' => 'General', 'CA1' => 'CA 1', 'CA2' => 'CA 2', 'EXAM' => 'Exam'];
+										echo form_dropdown("ca_type", $arrayCaType, set_value('ca_type', 'GENERAL'), "class='form-control' data-plugin-selectTwo data-width='100%' data-minimum-results-for-search='Infinity'");
+									?>
+								</div>
+							</div>
+							<div class="form-group">
 								<label class="col-md-3 control-label"><?=translate('mark')?> <span class="required">*</span></label>
 								<div class="col-md-6">
 									<input type="text" class="form-control" name="mark" autocomplete="off" value="">
@@ -245,6 +263,24 @@
 										data-plugin-selectTwo data-width='100%' data-minimum-results-for-search='Infinity' ");
 									?>
 									<span class="error"></span>
+								</div>
+							</div>
+							<div class="form-group">
+								<label class="col-md-3 control-label">Term</label>
+								<div class="col-md-6">
+									<?php
+										$arrayTerm = ['' => translate('select'), '1st' => '1st Term', '2nd' => '2nd Term', '3rd' => '3rd Term'];
+										echo form_dropdown("term", $arrayTerm, set_value('term'), "class='form-control' data-plugin-selectTwo data-width='100%' data-minimum-results-for-search='Infinity'");
+									?>
+								</div>
+							</div>
+							<div class="form-group">
+								<label class="col-md-3 control-label">CA Type</label>
+								<div class="col-md-6">
+									<?php
+										$arrayCaType = ['GENERAL' => 'General', 'CA1' => 'CA 1', 'CA2' => 'CA 2', 'EXAM' => 'Exam'];
+										echo form_dropdown("ca_type", $arrayCaType, set_value('ca_type', 'GENERAL'), "class='form-control' data-plugin-selectTwo data-width='100%' data-minimum-results-for-search='Infinity'");
+									?>
 								</div>
 							</div>
 							<div class="form-group">
@@ -349,6 +385,24 @@
 								</div>
 							</div>
 							<div class="form-group">
+								<label class="col-md-3 control-label">Term</label>
+								<div class="col-md-6">
+									<?php
+										$arrayTerm = ['' => translate('select'), '1st' => '1st Term', '2nd' => '2nd Term', '3rd' => '3rd Term'];
+										echo form_dropdown("term", $arrayTerm, set_value('term'), "class='form-control' data-plugin-selectTwo data-width='100%' data-minimum-results-for-search='Infinity'");
+									?>
+								</div>
+							</div>
+							<div class="form-group">
+								<label class="col-md-3 control-label">CA Type</label>
+								<div class="col-md-6">
+									<?php
+										$arrayCaType = ['GENERAL' => 'General', 'CA1' => 'CA 1', 'CA2' => 'CA 2', 'EXAM' => 'Exam'];
+										echo form_dropdown("ca_type", $arrayCaType, set_value('ca_type', 'GENERAL'), "class='form-control' data-plugin-selectTwo data-width='100%' data-minimum-results-for-search='Infinity'");
+									?>
+								</div>
+							</div>
+							<div class="form-group">
 								<label class="col-md-3 control-label"><?=translate('mark')?> <span class="required">*</span></label>
 								<div class="col-md-6">
 									<input type="text" class="form-control" name="mark" autocomplete="off" value="">
@@ -413,6 +467,24 @@
 										data-plugin-selectTwo data-width='100%' data-minimum-results-for-search='Infinity' ");
 									?>
 									<span class="error"></span>
+								</div>
+							</div>
+							<div class="form-group">
+								<label class="col-md-3 control-label">Term</label>
+								<div class="col-md-6">
+									<?php
+										$arrayTerm = ['' => translate('select'), '1st' => '1st Term', '2nd' => '2nd Term', '3rd' => '3rd Term'];
+										echo form_dropdown("term", $arrayTerm, set_value('term'), "class='form-control' data-plugin-selectTwo data-width='100%' data-minimum-results-for-search='Infinity'");
+									?>
+								</div>
+							</div>
+							<div class="form-group">
+								<label class="col-md-3 control-label">CA Type</label>
+								<div class="col-md-6">
+									<?php
+										$arrayCaType = ['GENERAL' => 'General', 'CA1' => 'CA 1', 'CA2' => 'CA 2', 'EXAM' => 'Exam'];
+										echo form_dropdown("ca_type", $arrayCaType, set_value('ca_type', 'GENERAL'), "class='form-control' data-plugin-selectTwo data-width='100%' data-minimum-results-for-search='Infinity'");
+									?>
 								</div>
 							</div>
 							<div class="form-group">

@@ -261,6 +261,8 @@ class Onlineexam_model extends MY_Model
             'opt_4' => $this->tagRemove($this->input->post('option4', false)),
             'answer' => $answer,
             'mark' => $this->input->post('mark'),
+            'term' => $this->input->post('term') ?: null,
+            'ca_type' => $this->input->post('ca_type') ?: 'GENERAL',
         );
 
         if (!empty($classID)) {
@@ -466,6 +468,9 @@ class Onlineexam_model extends MY_Model
         $columnSortOrder = empty($postData['order'][0]['dir']) ? 'asc' : $postData['order'][0]['dir']; // asc or desc
         $column_order = array('`questions`.`id`');
 
+        $filterTerm   = isset($postData['term'])    ? trim($postData['term'])    : '';
+        $filterCaType = isset($postData['ca_type']) ? trim($postData['ca_type']) : '';
+
         $search_arr = array();
         $searchQuery = "";
         if ($searchValue != '') {
@@ -479,6 +484,13 @@ class Onlineexam_model extends MY_Model
             $column_order[] = '`questions`.`branch_id`';
         }
 
+        if ($filterTerm !== '') {
+            $search_arr[] = " `questions`.`term` = '" . $this->db->escape_str($filterTerm) . "' ";
+        }
+        if ($filterCaType !== '') {
+            $search_arr[] = " `questions`.`ca_type` = '" . $this->db->escape_str($filterCaType) . "' ";
+        }
+
         // order
         $column_order[] = '`questions`.`question`';
         $column_order[] = '`group_name`';
@@ -486,6 +498,8 @@ class Onlineexam_model extends MY_Model
         $column_order[] = '`subject`.`id`';
         $column_order[] = '`questions`.`type`';
         $column_order[] = '`questions`.`level`';
+        $column_order[] = '`questions`.`term`';
+        $column_order[] = '`questions`.`ca_type`';
 
         if (count($search_arr) > 0) {
             $searchQuery = implode("AND", $search_arr);
@@ -510,7 +524,7 @@ class Onlineexam_model extends MY_Model
         $totalRecordwithFilter = count($records);
 
         // Fetch records
-        $sql = "SELECT `questions`.*, `branch`.`name`, `subject`.`name` as `subject_name`, `class`.`name` as `class_name`, `section`.`name` as `section_name`, `question_group`.`name` as `group_name` FROM `questions` INNER JOIN `branch` ON `branch`.`id` = `questions`.`branch_id` LEFT JOIN `class` ON `class`.`id` = `questions`.`class_id` LEFT JOIN `section` ON `section`.`id` = `questions`.`section_id` LEFT JOIN `subject` ON `subject`.`id` = `questions`.`subject_id` LEFT JOIN `question_group` ON `question_group`.`id` = `questions`.`group_id`";
+        $sql = "SELECT `questions`.`id`, `questions`.`question`, `questions`.`type`, `questions`.`level`, `questions`.`term`, `questions`.`ca_type`, `branch`.`name`, `subject`.`name` as `subject_name`, `class`.`name` as `class_name`, `section`.`name` as `section_name`, `question_group`.`name` as `group_name` FROM `questions` INNER JOIN `branch` ON `branch`.`id` = `questions`.`branch_id` LEFT JOIN `class` ON `class`.`id` = `questions`.`class_id` LEFT JOIN `section` ON `section`.`id` = `questions`.`section_id` LEFT JOIN `subject` ON `subject`.`id` = `questions`.`subject_id` LEFT JOIN `question_group` ON `question_group`.`id` = `questions`.`group_id`";
         if (!empty($searchQuery)) {
             $sql .= " WHERE " . $searchQuery;
         }
@@ -538,6 +552,8 @@ class Onlineexam_model extends MY_Model
             $row[] = $record->subject_name;
             $row[] = $question_type[$record->type];
             $row[] = $arrayLevel[$record->level];
+            $row[] = $record->term ?? '—';
+            $row[] = $record->ca_type ?? 'GENERAL';
             $row[] = $action;
             $data[] = $row;
         }
