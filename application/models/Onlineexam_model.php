@@ -385,6 +385,16 @@ class Onlineexam_model extends MY_Model
             $search_arr[] = " `questions`.`subject_id` = $subjectID ";
         }
 
+        $term = isset($postData['term']) ? $postData['term'] : '';
+        if ($term != '') {
+            $search_arr[] = " `questions`.`term` = '" . $this->db->escape_str($term) . "' ";
+        }
+
+        $caType = isset($postData['ca_type']) ? $postData['ca_type'] : '';
+        if ($caType != '') {
+            $search_arr[] = " `questions`.`ca_type` = '" . $this->db->escape_str($caType) . "' ";
+        }
+
         if (count($search_arr) > 0) {
             $searchQuery = implode("AND", $search_arr);
         }
@@ -436,6 +446,8 @@ class Onlineexam_model extends MY_Model
             $row[] = $record->subject_name;
             $row[] = $question_type[$record->type];
             $row[] = $arrayLevel[$record->level];
+            $row[] = $record->term ?? '—';
+            $row[] = $record->ca_type ?? 'GENERAL';
             $row[] = '<div class="form-group"><input type="text" class="form-control" name="question[' . $key . '][marks]" value="' . $record->marks . '"><span class="error"></span></div>';
             if ($negMark == 1) {
                 $row[] = '<div class="form-group"><input type="text" class="form-control" name="question[' . $key . '][negative_marks]" value="' . $record->neg_marks . '"><span class="error"></span></div>';

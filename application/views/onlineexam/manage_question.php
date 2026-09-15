@@ -89,6 +89,29 @@
 						</div>
 					</div>
 				</div>
+				<div class="col-md-4 mb-sm">
+					<div class="form-group">
+						<label class="control-label">Term</label>
+						<select id="questionTerm" class="form-control" data-plugin-selectTwo data-width="100%" data-minimum-results-for-search="Infinity">
+							<option value="">All Terms</option>
+							<option value="1st">1st Term</option>
+							<option value="2nd">2nd Term</option>
+							<option value="3rd">3rd Term</option>
+						</select>
+					</div>
+				</div>
+				<div class="col-md-4">
+					<div class="form-group">
+						<label class="control-label">CA Type</label>
+						<select id="questionCaType" class="form-control" data-plugin-selectTwo data-width="100%" data-minimum-results-for-search="Infinity">
+							<option value="">All Types</option>
+							<option value="GENERAL">General</option>
+							<option value="CA1">CA 1</option>
+							<option value="CA2">CA 2</option>
+							<option value="EXAM">Exam</option>
+						</select>
+					</div>
+				</div>
 			</div>
 			<footer class="panel-footer">
 				<div class="row">
@@ -121,6 +144,8 @@
 							<th><?=translate('subject')?></th>
 							<th><?=translate('type')?></th>
 							<th><?=translate('level')?></th>
+							<th>Term</th>
+							<th>CA Type</th>
 							<th><?=translate('marks')?></th>
 						<?php if ($exam['neg_mark'] == 1) {  ?>
 							<th><?=translate('negative_marks')?></th>
@@ -168,6 +193,8 @@
                     data.classID = classID;
                     data.sectionID = sectionID;
                     data.subjectID = subjectID;
+                    data.term = $('#questionTerm').val();
+                    data.ca_type = $('#questionCaType').val();
                     data.negMark = negMark;
                 }
             },
