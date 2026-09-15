@@ -150,6 +150,7 @@ class Onlineexam_model extends MY_Model
                 }
             }
             $action .= '<a href="' . base_url('onlineexam/question_list/' . $record->id) . '" class="btn btn-circle btn-default icon" data-toggle="tooltip" data-original-title="' . translate('view') ." ". translate('question') . '"> <i class="fas fa-list-check"></i></a>';
+            $action .= '<a href="' . base_url('onlineexam/exam_students/' . $record->id) . '" class="btn btn-circle btn-default icon" data-toggle="tooltip" data-original-title="Student Status / Restore"> <i class="fas fa-users"></i></a>';
             if ($record->publish_status == 0) {
                 $action .= '<a href="' . base_url('onlineexam/manage_question/' . $record->id) . '" class="btn btn-circle btn-default icon" data-toggle="tooltip" data-original-title="' . translate('add_questions') . '"> <i class="fas fa-question"></i></a>';
             }
@@ -631,6 +632,14 @@ class Onlineexam_model extends MY_Model
         return $r->att;
     }
 
+    public function getExtraMinutes($onlineexamID)
+    {
+        $r = $this->db->select('extra_minutes')
+            ->where(['student_id' => get_loggedin_user_id(), 'online_exam_id' => $onlineexamID])
+            ->get('online_exam_attempts')->row();
+        return $r ? (int)$r->extra_minutes : 0;
+    }
+
     public function addStudentAttemts($onlineexamID)
     {
         $query = $this->db->where(array('student_id' => get_loggedin_user_id(), 'online_exam_id' => $onlineexamID))->get('online_exam_attempts');
@@ -640,6 +649,51 @@ class Onlineexam_model extends MY_Model
             $this->db->update('online_exam_attempts');
         } else {
             $this->db->insert('online_exam_attempts', ['student_id' => get_loggedin_user_id(), 'online_exam_id' => $onlineexamID, 'count' => 1]);
+        }
+    }
+
+    public function getExamStudents($examID)
+    {
+        $exam = $this->db->select('class_id, section_id, branch_id')->where('id', $examID)->get('online_exam')->row();
+        if (empty($exam)) return [];
+
+        $sectionIDs = json_decode($exam->section_id, true);
+        if (empty($sectionIDs) || !is_array($sectionIDs)) $sectionIDs = [];
+
+        $this->db->select('
+            s.id AS student_id,
+            CONCAT_WS(" ", s.first_name, s.last_name) AS fullname,
+            s.register_no,
+            se.name AS section_name,
+            IFNULL(oea.count, 0) AS attempt_count,
+            IFNULL(oea.extra_minutes, 0) AS extra_minutes,
+            oes.id AS submitted_id
+        ');
+        $this->db->from('enroll e');
+        $this->db->join('student s', 's.id = e.student_id');
+        $this->db->join('section se', 'se.id = e.section_id', 'left');
+        $this->db->join('online_exam_attempts oea', 'oea.student_id = s.id AND oea.online_exam_id = ' . (int)$examID, 'left');
+        $this->db->join('online_exam_submitted oes', 'oes.student_id = s.id AND oes.online_exam_id = ' . (int)$examID, 'left');
+        $this->db->where('e.branch_id', $exam->branch_id);
+        $this->db->where('e.class_id', $exam->class_id);
+        $this->db->where('(e.is_alumni IS NULL OR e.is_alumni = 0)');
+        if (!empty($sectionIDs)) {
+            $this->db->where_in('e.section_id', $sectionIDs);
+        }
+        $this->db->where('e.session_id', get_session_id());
+        $this->db->order_by('se.name ASC, s.register_no ASC');
+        return $this->db->get()->result_array();
+    }
+
+    public function restoreStudentExam($studentID, $examID, $extraMinutes)
+    {
+        $this->db->where(['student_id' => $studentID, 'online_exam_id' => $examID])->delete('online_exam_submitted');
+        $row = $this->db->where(['student_id' => $studentID, 'online_exam_id' => $examID])->get('online_exam_attempts')->row();
+        if ($row) {
+            $newCount = max(0, $row->count - 1);
+            $this->db->where('id', $row->id)->update('online_exam_attempts', ['count' => $newCount, 'extra_minutes' => (int)$extraMinutes]);
+        } else {
+            $this->db->insert('online_exam_attempts', ['student_id' => $studentID, 'online_exam_id' => $examID, 'count' => 0, 'extra_minutes' => (int)$extraMinutes]);
         }
     }
 

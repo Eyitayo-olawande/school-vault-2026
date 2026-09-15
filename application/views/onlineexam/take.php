@@ -137,6 +137,12 @@ if (empty($studentSubmitted)) {
 		                currentStep = steps;
 		                makeAnswered(data.step);
 		            });
+		            if (data.extra_minutes && parseInt(data.extra_minutes) > 0) {
+		                var parts = examDuration.split(':');
+		                var totalSecs = parseInt(parts[0])*3600 + parseInt(parts[1])*60 + parseInt(parts[2]) + parseInt(data.extra_minutes)*60;
+		                var h = Math.floor(totalSecs/3600), m = Math.floor((totalSecs%3600)/60), s = totalSecs%60;
+		                examDuration = (h<10?'0':'')+h+':'+(m<10?'0':'')+m+':'+(s<10?'0':'')+s;
+		            }
 		            timer();
 		            $('#ans_modalBox').modal({
 		                show: true,

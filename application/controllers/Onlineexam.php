@@ -202,6 +202,41 @@ class Onlineexam extends Admin_Controller
         $this->load->view('layout/index', $this->data);
     }
 
+    public function exam_students($id = '')
+    {
+        if (!get_permission('online_exam', 'is_edit')) {
+            access_denied();
+        }
+        $exam = $this->onlineexam_model->getExamDetails($id, false);
+        if (empty($exam)) {
+            access_denied();
+        }
+        $this->data['exam']     = $exam;
+        $this->data['students'] = $this->onlineexam_model->getExamStudents($id);
+        $this->data['title']    = 'Exam Students';
+        $this->data['sub_page'] = 'onlineexam/exam_students';
+        $this->data['main_menu'] = 'onlineexam';
+        $this->load->view('layout/index', $this->data);
+    }
+
+    public function restore_student()
+    {
+        if (!get_permission('online_exam', 'is_edit')) {
+            ajax_access_denied();
+        }
+        if ($_POST) {
+            $studentID   = (int)$this->input->post('student_id');
+            $examID      = (int)$this->input->post('exam_id');
+            $extraMinutes = (int)$this->input->post('extra_minutes');
+            if ($studentID && $examID) {
+                $this->onlineexam_model->restoreStudentExam($studentID, $examID, $extraMinutes);
+                echo json_encode(['status' => 'success', 'message' => 'Student restored successfully.']);
+            } else {
+                echo json_encode(['status' => 'fail', 'message' => 'Invalid data.']);
+            }
+        }
+    }
+
     public function remove_question($id='')
     {
         if (get_permission('online_exam', 'is_edit')) {

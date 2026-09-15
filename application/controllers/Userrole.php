@@ -704,12 +704,14 @@ class Userrole extends User_Controller
         $totalQuestions = $exam->questions_qty;
         $studentAttempt = $this->onlineexam_model->getStudentAttempt($exam->id);
         $examSubmitted = $this->onlineexam_model->getStudentSubmitted($exam->id);
+        $extraMinutes = 0;
         if (!empty($exam)) {
             $startTime = strtotime($exam->exam_start);
             $endTime = strtotime($exam->exam_end);
             $now = strtotime("now");
             if (($startTime <= $now && $now <= $endTime) && (empty($examSubmitted)) && $exam->publish_status == 1) {
                 if ($exam->limits_participation > $studentAttempt) {
+                    $extraMinutes = $this->onlineexam_model->getExtraMinutes($exam->id);
                     $this->onlineexam_model->addStudentAttemts($exam->id);
                     $message = "";
                     $status = 1;
@@ -724,7 +726,7 @@ class Userrole extends User_Controller
         $data['exam'] = $exam;
         $data['questions'] = $this->onlineexam_model->getExamQuestions($exam->id, $exam->question_type);
         $pag_content = $this->load->view('onlineexam/ajax_take', $data, true);
-        echo json_encode(array('status' => $status, 'total_questions' => $totalQuestions, 'message' => $message, 'page' => $pag_content));
+        echo json_encode(array('status' => $status, 'total_questions' => $totalQuestions, 'extra_minutes' => $extraMinutes, 'message' => $message, 'page' => $pag_content));
     }
 
     public function getStudent_result()
