@@ -78,15 +78,16 @@ class Dashboard extends Admin_Controller
             $branchWhere = !empty($schoolID) ? "AND fa.branch_id = " . (int)$schoolID : "";
             $fovSummary  = $this->db->query("
                 SELECT
-                    IFNULL(SUM(CASE WHEN ft.system = 1 THEN fa.prev_due ELSE fgd.amount END), 0) AS total_invoiced,
-                    IFNULL(SUM(fph.amount - IFNULL(fph.discount, 0)), 0)                          AS total_collected,
-                    IFNULL(SUM(IFNULL(fph.fine, 0)), 0)                                           AS total_fines
+                    IFNULL(SUM(fgd.amount), 0)                               AS total_invoiced,
+                    IFNULL(SUM(fph.amount - IFNULL(fph.discount, 0)), 0)     AS total_collected,
+                    IFNULL(SUM(IFNULL(fph.fine, 0)), 0)                      AS total_fines
                 FROM fee_allocation fa
                 INNER JOIN fee_groups_details fgd ON fgd.fee_groups_id = fa.group_id
                 INNER JOIN fees_type ft           ON ft.id = fgd.fee_type_id
                 LEFT  JOIN fee_payment_history fph ON fph.allocation_id = fa.id
                                                   AND fph.type_id = fgd.fee_type_id
                 WHERE fa.session_id = {$sessionID} {$branchWhere}
+                  AND ft.system != 1
             ")->row_array();
             if (!empty($fovSummary)) {
                 $fovSummary['total_outstanding'] = $fovSummary['total_invoiced'] - $fovSummary['total_collected'];
