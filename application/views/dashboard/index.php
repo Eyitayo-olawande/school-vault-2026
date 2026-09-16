@@ -86,6 +86,111 @@ if (get_permission('student_birthday_widget', 'is_view') || get_permission('staf
 		</div>
 <?php } ?>
 	</div>
+
+<?php if (get_permission('fees_reports', 'is_view') && !empty($fov_summary)): ?>
+<div class="row" style="margin-bottom:15px;">
+    <div class="col-md-12">
+        <div class="panel" style="background:#fff;border:1px solid #e1e5eb;">
+            <div class="row widget-row-in">
+
+                <!-- Total Invoiced -->
+                <div class="col-lg-3 col-sm-6">
+                    <div class="panel-body">
+                        <div class="widget-col-in row">
+                            <div class="col-xs-6">
+                                <i class="fas fa-file-invoice-dollar" style="color:#C4882B;"></i>
+                                <h5>Total Invoiced</h5>
+                            </div>
+                            <div class="col-xs-6">
+                                <h3 class="text-right mt-md" style="color:#C4882B;font-size:16px;font-weight:700;">
+                                    <?= currencyFormat($fov_summary['total_invoiced'] ?? 0) ?>
+                                </h3>
+                            </div>
+                            <div class="col-md-12">
+                                <div class="box-top-line" style="border-color:#C4882B;">
+                                    <span class="text-uppercase" style="color:#C4882B;">Current Session</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Collected -->
+                <div class="col-lg-3 col-sm-6">
+                    <div class="panel-body">
+                        <div class="widget-col-in row">
+                            <div class="col-xs-6">
+                                <i class="fas fa-check-circle" style="color:#1E6B45;"></i>
+                                <h5>Collected</h5>
+                            </div>
+                            <div class="col-xs-6">
+                                <h3 class="text-right mt-md" style="color:#1E6B45;font-size:16px;font-weight:700;">
+                                    <?= currencyFormat($fov_summary['total_collected'] ?? 0) ?>
+                                </h3>
+                            </div>
+                            <div class="col-md-12">
+                                <div class="box-top-line" style="border-color:#1E6B45;">
+                                    <span class="text-uppercase" style="color:#1E6B45;">
+                                        <?= $fov_summary['total_invoiced'] > 0
+                                            ? round($fov_summary['total_collected'] / $fov_summary['total_invoiced'] * 100)
+                                            : 0 ?>% Collection Rate
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Outstanding -->
+                <div class="col-lg-3 col-sm-6">
+                    <div class="panel-body">
+                        <div class="widget-col-in row">
+                            <div class="col-xs-6">
+                                <i class="fas fa-exclamation-circle" style="color:#8B2020;"></i>
+                                <h5>Outstanding</h5>
+                            </div>
+                            <div class="col-xs-6">
+                                <h3 class="text-right mt-md" style="color:#8B2020;font-size:16px;font-weight:700;">
+                                    <?= currencyFormat($fov_summary['total_outstanding'] ?? 0) ?>
+                                </h3>
+                            </div>
+                            <div class="col-md-12">
+                                <div class="box-top-line" style="border-color:#8B2020;">
+                                    <span class="text-uppercase" style="color:#8B2020;">Unpaid Balance</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Fines Collected -->
+                <div class="col-lg-3 col-sm-6">
+                    <div class="panel-body">
+                        <div class="widget-col-in row">
+                            <div class="col-xs-6">
+                                <i class="fas fa-coins" style="color:#1A4A7A;"></i>
+                                <h5>Fines Collected</h5>
+                            </div>
+                            <div class="col-xs-6">
+                                <h3 class="text-right mt-md" style="color:#1A4A7A;font-size:16px;font-weight:700;">
+                                    <?= currencyFormat($fov_summary['total_fines'] ?? 0) ?>
+                                </h3>
+                            </div>
+                            <div class="col-md-12">
+                                <div class="box-top-line" style="border-color:#1A4A7A;">
+                                    <span class="text-uppercase" style="color:#1A4A7A;">Current Session</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
+
 <?php if ($widget1 > 0) { ?>
 	<div class="row widget-1">
 		<div class="col-md-12 col-lg-12 col-sm-12">
