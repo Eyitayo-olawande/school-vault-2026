@@ -642,14 +642,29 @@ class Onlineexam_model extends MY_Model
 
     public function addStudentAttemts($onlineexamID)
     {
+        $now   = date('Y-m-d H:i:s');
         $query = $this->db->where(array('student_id' => get_loggedin_user_id(), 'online_exam_id' => $onlineexamID))->get('online_exam_attempts');
         if ($query->num_rows() > 0) {
             $this->db->set('count', 'count+1', false);
+            $this->db->set('started_at', $now);
             $this->db->where('id', $query->row()->id);
             $this->db->update('online_exam_attempts');
         } else {
-            $this->db->insert('online_exam_attempts', ['student_id' => get_loggedin_user_id(), 'online_exam_id' => $onlineexamID, 'count' => 1]);
+            $this->db->insert('online_exam_attempts', [
+                'student_id'    => get_loggedin_user_id(),
+                'online_exam_id'=> $onlineexamID,
+                'count'         => 1,
+                'started_at'    => $now,
+            ]);
         }
+    }
+
+    public function getActiveAttempt($onlineexamID)
+    {
+        return $this->db
+            ->where(['student_id' => get_loggedin_user_id(), 'online_exam_id' => $onlineexamID])
+            ->where('started_at IS NOT NULL', null, false)
+            ->get('online_exam_attempts')->row();
     }
 
     public function getExamStudents($examID)

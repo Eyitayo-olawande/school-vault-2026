@@ -96,7 +96,6 @@ if (empty($studentSubmitted)) {
 	var totalQuestions = 0;
 	var currentStep = 1;
 	$(document).on('click', '.start_btn', function() {
-	    elapsed_seconds = 0;
 	    var $this = $(this);
 	    var examID = $this.attr("data-examid");
 	    $.ajax({
@@ -137,12 +136,17 @@ if (empty($studentSubmitted)) {
 		                currentStep = steps;
 		                makeAnswered(data.step);
 		            });
-		            if (data.extra_minutes && parseInt(data.extra_minutes) > 0) {
-		                var parts = examDuration.split(':');
-		                var totalSecs = parseInt(parts[0])*3600 + parseInt(parts[1])*60 + parseInt(parts[2]) + parseInt(data.extra_minutes)*60;
-		                var h = Math.floor(totalSecs/3600), m = Math.floor((totalSecs%3600)/60), s = totalSecs%60;
-		                examDuration = (h<10?'0':'')+h+':'+(m<10?'0':'')+m+':'+(s<10?'0':'')+s;
+		            // Server-side timer: use remaining_seconds computed from started_at
+		            var remSecs = parseInt(data.remaining_seconds) || 0;
+		            if (remSecs <= 0) {
+		                // Time already expired (e.g. reconnect after timeout)
+		                $('#answerForm').submit();
+		                return;
 		            }
+		            var h = Math.floor(remSecs/3600),
+		                m = Math.floor((remSecs % 3600)/60),
+		                s = remSecs % 60;
+		            examDuration = (h<10?'0':'')+h+':'+(m<10?'0':'')+m+':'+(s<10?'0':'')+s;
 		            timer();
 		            $('#ans_modalBox').modal({
 		                show: true,
@@ -154,7 +158,7 @@ if (empty($studentSubmitted)) {
 		        		alertMsg(data.message, "error", "<?php echo translate('error') ?>", "");
 		        }
 	        },
-	        error: function(xhr) { // if error occured
+	        error: function(xhr) {
 	            alert("Error occured.please try again");
 	            $this.button('reset');
 	        },

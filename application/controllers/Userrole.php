@@ -695,38 +695,61 @@ class Userrole extends User_Controller
 
     public function ajaxQuestions()
     {
-        $status = 0;
-        $totalQuestions = 0;
-        $message = "";
+        $status           = 0;
+        $totalQuestions   = 0;
+        $message          = '';
+        $remaining_seconds = 0;
         $this->load->model('onlineexam_model');
-        $examID = $this->input->post('exam_id');
-        $exam = $this->userrole_model->getExamDetails($examID);
+        $examID        = $this->input->post('exam_id');
+        $exam          = $this->userrole_model->getExamDetails($examID);
         $totalQuestions = $exam->questions_qty;
-        $studentAttempt = $this->onlineexam_model->getStudentAttempt($exam->id);
-        $examSubmitted = $this->onlineexam_model->getStudentSubmitted($exam->id);
-        $extraMinutes = 0;
+        $examSubmitted  = $this->onlineexam_model->getStudentSubmitted($exam->id);
+
         if (!empty($exam)) {
             $startTime = strtotime($exam->exam_start);
-            $endTime = strtotime($exam->exam_end);
-            $now = strtotime("now");
-            if (($startTime <= $now && $now <= $endTime) && (empty($examSubmitted)) && $exam->publish_status == 1) {
-                if ($exam->limits_participation > $studentAttempt) {
-                    $extraMinutes = $this->onlineexam_model->getExtraMinutes($exam->id);
+            $endTime   = strtotime($exam->exam_end);
+            $now       = time();
+
+            // Parse exam duration (TIME stored as H:i:s) into seconds
+            list($dh, $dm, $ds) = explode(':', $exam->duration);
+            $durationSecs = (int)$dh * 3600 + (int)$dm * 60 + (int)$ds;
+
+            if (($startTime <= $now && $now <= $endTime) && empty($examSubmitted) && $exam->publish_status == 1) {
+                $activeAttempt  = $this->onlineexam_model->getActiveAttempt($exam->id);
+                $studentAttempt = $this->onlineexam_model->getStudentAttempt($exam->id);
+
+                if ($activeAttempt && !empty($activeAttempt->started_at)) {
+                    // Reconnect to existing attempt — do NOT increment count
+                    $elapsed          = $now - strtotime($activeAttempt->started_at);
+                    $totalSecs        = $durationSecs + (int)$activeAttempt->extra_minutes * 60;
+                    $remaining_seconds = max(0, $totalSecs - $elapsed);
+                    $status           = ($remaining_seconds > 0) ? 1 : 0;
+                    $message          = ($remaining_seconds <= 0) ? 'Time has expired. Your exam will be submitted.' : '';
+                } elseif ($exam->limits_participation > $studentAttempt) {
+                    // New attempt — record started_at now
                     $this->onlineexam_model->addStudentAttemts($exam->id);
-                    $message = "";
-                    $status = 1;
+                    $extraMinutes      = $this->onlineexam_model->getExtraMinutes($exam->id);
+                    $remaining_seconds = $durationSecs + $extraMinutes * 60;
+                    $status            = 1;
                 } else {
-                    $status = 0;
-                    $message = "You already reach max exam attempt.";
+                    $status  = 0;
+                    $message = 'You have already reached the maximum number of exam attempts.';
                 }
             } else {
-                $message = "Maybe the test has expired or something wrong.";
+                $message = 'The exam is not currently active or you have already submitted.';
             }
         }
-        $data['exam'] = $exam;
+
+        $data['exam']      = $exam;
         $data['questions'] = $this->onlineexam_model->getExamQuestions($exam->id, $exam->question_type);
-        $pag_content = $this->load->view('onlineexam/ajax_take', $data, true);
-        echo json_encode(array('status' => $status, 'total_questions' => $totalQuestions, 'extra_minutes' => $extraMinutes, 'message' => $message, 'page' => $pag_content));
+        $pag_content       = $this->load->view('onlineexam/ajax_take', $data, true);
+        echo json_encode([
+            'status'            => $status,
+            'total_questions'   => $totalQuestions,
+            'remaining_seconds' => $remaining_seconds,
+            'message'           => $message,
+            'page'              => $pag_content,
+        ]);
     }
 
     public function getStudent_result()
