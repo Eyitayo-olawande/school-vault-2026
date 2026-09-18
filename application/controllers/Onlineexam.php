@@ -716,6 +716,68 @@ class Onlineexam extends Admin_Controller
         }
         $this->db->where('id', $id);
         $this->db->update('online_exam', ['publish_result' => 1]);
+
+        $exam = $this->db->select('notify_parents')->where('id', $id)->get('online_exam')->row_array();
+        if (!empty($exam['notify_parents'])) {
+            $this->_notifyExamParents((int)$id);
+        }
+    }
+
+    private function _notifyExamParents($examID)
+    {
+        $exam = $this->db->where('id', $examID)->get('online_exam')->row_array();
+        if (empty($exam)) return;
+
+        $smsApi = $this->application_model->smsServiceProvider($exam['branch_id']);
+        if (empty($smsApi) || $smsApi === 'disabled') return;
+
+        $subjectIDs  = json_decode($exam['subject_id'], true) ?: [];
+        $subjectName = '';
+        if (!empty($subjectIDs)) {
+            $s = $this->db->select('name')->where('id', (int)$subjectIDs[0])->get('subject')->row_array();
+            $subjectName = $s['name'] ?? '';
+        }
+
+        $sess = $this->db->select('session')->where('id', $exam['session_id'])->get('sessions')->row_array();
+        $sessionLabel = $sess['session'] ?? '';
+
+        $submitted = $this->db->select('online_exam_submitted.student_id, student.parent_id, student.first_name, student.last_name')
+            ->from('online_exam_submitted')
+            ->join('student', 'student.id = online_exam_submitted.student_id', 'left')
+            ->where('online_exam_submitted.online_exam_id', $examID)
+            ->get()->result_array();
+
+        if (empty($submitted)) return;
+
+        $logRows = [];
+        foreach ($submitted as $row) {
+            if (empty($row['parent_id'])) continue;
+            $parent = $this->db->select('mobileno')->where('id', $row['parent_id'])->get('parent')->row_array();
+            $mobile = trim($parent['mobileno'] ?? '');
+            if (empty($mobile)) continue;
+
+            $studentName = trim($row['first_name'] . ' ' . $row['last_name']);
+            $res         = $this->onlineexam_model->examResult($examID, $row['student_id']);
+            $obtained    = (float)$res['total_obtain_marks'] - (float)$res['total_neg_marks'];
+            $score       = ($res['total_marks'] > 0)
+                           ? number_format(($obtained / $res['total_marks']) * 100, 1)
+                           : '0.0';
+
+            $message = "{$studentName} scored {$score}% in {$subjectName} ({$sessionLabel}). Log in to view full result.";
+            $this->sms_model->_send($smsApi, $mobile, $message);
+
+            $logRows[] = [
+                'exam_id'       => $examID,
+                'student_id'    => $row['student_id'],
+                'parent_mobile' => $mobile,
+                'message'       => $message,
+                'sent_at'       => date('Y-m-d H:i:s'),
+            ];
+        }
+
+        if (!empty($logRows)) {
+            $this->db->insert_batch('online_exam_notify_log', $logRows);
+        }
     }
 
     // get subject list based on class

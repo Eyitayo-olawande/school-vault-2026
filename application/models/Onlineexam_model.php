@@ -28,6 +28,7 @@ class Onlineexam_model extends MY_Model
             'marks_display' => 0,
             'neg_mark' => (isset($data['negative_marking']) ? 1 : 0),
             'marks_display' => (isset($data['marks_display']) ? 1 : 0),
+            'notify_parents' => (isset($data['notify_parents']) ? 1 : 0),
             'question_type' => $data['question_type'],
             'fee' => ($data['exam_type'] == 1 ? $data['exam_fee'] : 0),
             'exam_type' =>  $data['exam_type'],

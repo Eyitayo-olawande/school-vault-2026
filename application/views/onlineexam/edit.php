@@ -241,6 +241,16 @@
 	                        </div>
 						</div>
 					</div>
+					<div class="form-group">
+						<label class="col-md-3 control-label">Notify Parents on Result</label>
+						<div class="col-md-6">
+	                        <div class="material-switch mt-xs mb-lg">
+	                            <input class="switch_menu" id="notify_parents" name="notify_parents" type="checkbox" <?php echo !empty($onlineexam['notify_parents']) ? 'checked' : ''; ?> />
+	                            <label for="notify_parents" class="label-primary"></label>
+	                        </div>
+	                        <small class="text-muted">SMS sent to parents when results are published.</small>
+						</div>
+					</div>
 					<footer class="panel-footer">
 						<div class="row">
 							<div class="col-md-offset-3 col-md-2">
