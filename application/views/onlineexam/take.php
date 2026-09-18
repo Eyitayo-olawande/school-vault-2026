@@ -148,6 +148,15 @@ if (empty($studentSubmitted)) {
 		                s = remSecs % 60;
 		            examDuration = (h<10?'0':'')+h+':'+(m<10?'0':'')+m+':'+(s<10?'0':'')+s;
 		            timer();
+		            // Auto-save: fire on each answer change
+		            $('#answerForm').off('change.autosave').on('change.autosave', 'input[type="radio"], input[type="checkbox"]', function() {
+		                autoSaveAnswer(examID, $(this));
+		            });
+		            $('#answerForm').off('input.autosave').on('input.autosave', 'input[type="text"]', function() {
+		                clearTimeout($(this).data('asTimer'));
+		                var $el = $(this);
+		                $el.data('asTimer', setTimeout(function() { autoSaveAnswer(examID, $el); }, 800));
+		            });
 		            $('#ans_modalBox').modal({
 		                show: true,
 		                backdrop: 'static',
@@ -193,6 +202,31 @@ if (empty($studentSubmitted)) {
 
 	function completeExams() {
 	   $('#answerForm').submit();
+	}
+
+	function autoSaveAnswer(examID, $input) {
+	    var name = $input.attr('name');
+	    var matches = name.match(/answer\[(\d+)\]\[(\d+)\]/);
+	    if (!matches) return;
+	    var questionID = matches[1];
+	    var ansType    = matches[2];
+	    var answer;
+	    if ($input.attr('type') === 'checkbox') {
+	        var checked = [];
+	        $('input[name="answer[' + questionID + '][' + ansType + '][]"]:checked').each(function() {
+	            checked.push($(this).val());
+	        });
+	        answer = JSON.stringify(checked);
+	    } else {
+	        answer = $input.val();
+	    }
+	    $.post(base_url + 'userrole/autosave_answer', {
+	        exam_id: examID, question_id: questionID, answer_type: ansType, answer: answer
+	    }, function(res) {
+	        if (res && res.status == 1) {
+	            $('#autosave_indicator').text('Saved at ' + res.ts);
+	        }
+	    }, 'json');
 	}
 
 	// remain duration update

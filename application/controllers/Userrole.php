@@ -842,12 +842,53 @@ class Userrole extends User_Controller
                         );
                     }
                 }
+                // Remove any auto-saved answers before the final batch insert
+                $this->db->where(['student_id' => $studentID, 'online_exam_id' => $online_examID])->delete('online_exam_answer');
                 $this->db->insert_batch('online_exam_answer', $saveAnswer);
                 $this->db->insert('online_exam_submitted', ['student_id' => get_loggedin_user_id(), 'online_exam_id' => $online_examID, 'created_at' => date('Y-m-d H:i:s')]);
             }
             set_alert('success', translate('your_exam_has_been_successfully_submitted'));
             redirect(base_url('userrole/online_exam'));
         }
+    }
+
+    public function autosave_answer()
+    {
+        if (!is_student_loggedin()) {
+            echo json_encode(['status' => 0]);
+            return;
+        }
+        $examID     = (int)$this->input->post('exam_id');
+        $questionID = (int)$this->input->post('question_id');
+        $answer     = $this->input->post('answer');
+        $studentID  = get_loggedin_user_id();
+
+        $this->load->model('onlineexam_model');
+        $exam = $this->userrole_model->getExamDetails($examID);
+        if (empty($exam)) { echo json_encode(['status' => 0]); return; }
+
+        $now = time();
+        if ($now < strtotime($exam->exam_start) || $now > strtotime($exam->exam_end)) {
+            echo json_encode(['status' => 0]); return;
+        }
+        $submitted = $this->onlineexam_model->getStudentSubmitted($examID);
+        if (!empty($submitted)) { echo json_encode(['status' => 0]); return; }
+
+        $existing = $this->db->where(['student_id' => $studentID, 'online_exam_id' => $examID, 'question_id' => $questionID])
+                             ->get('online_exam_answer')->row();
+        if ($existing) {
+            $this->db->where(['student_id' => $studentID, 'online_exam_id' => $examID, 'question_id' => $questionID])
+                     ->update('online_exam_answer', ['answer' => $answer, 'created_at' => date('Y-m-d H:i:s')]);
+        } else {
+            $this->db->insert('online_exam_answer', [
+                'student_id'     => $studentID,
+                'online_exam_id' => $examID,
+                'question_id'    => $questionID,
+                'answer'         => $answer,
+                'created_at'     => date('Y-m-d H:i:s'),
+            ]);
+        }
+        echo json_encode(['status' => 1, 'ts' => date('H:i:s')]);
     }
 
     public function offline_payments()

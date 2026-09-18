@@ -26,6 +26,11 @@ if (!empty($questions)) {
 		                       <h4 class="remain_duration text-dark"><?=$exam->duration?></h4>
 		                   </div>
 		               </div>
+		               <div class="row mt-sm">
+		                   <div class="col-sm-12">
+		                       <small id="autosave_indicator" class="text-muted"></small>
+		                   </div>
+		               </div>
 				       </div>
 				   </div>
 				</section>
@@ -80,7 +85,7 @@ if (!empty($questions)) {
 							       		if (!empty($question->{$quesOption_key})) {
 						       	 ?>
 								       <div class="radio-custom radio-success mt-md">
-								           <input type="radio" value="<?=$quesOption_value?>" name="answer[<?=$question->question_id?>][<?=$question->type?>]" id="opt<?=$key . $quesOption_value?>">
+								           <input type="radio" value="<?=$quesOption_value?>" name="answer[<?=$question->question_id?>][<?=$question->type?>]" id="opt<?=$key . $quesOption_value?>" <?= ($question->sb_ans == $quesOption_value) ? 'checked' : '' ?>>
 								           <label for="opt<?=$key . $quesOption_value?>"><?=$question->{$quesOption_key}?></label>
 								       </div>
 									<?php } } } elseif ($question->type == 2) { 
@@ -88,21 +93,22 @@ if (!empty($questions)) {
 										if (!empty($question->{$quesOption_key})) {
 									?>
 										<div class="checkbox-replace mt-lg">
-											<label class="i-checks"><input type="checkbox" name="answer[<?=$question->question_id?>][<?=$question->type?>][]" value="<?=$quesOption_value?>"><i></i><?=$question->{$quesOption_key}?></label>
+											<?php $cbChecked = !empty($question->sb_ans) ? json_decode($question->sb_ans, true) : []; ?>
+										<label class="i-checks"><input type="checkbox" name="answer[<?=$question->question_id?>][<?=$question->type?>][]" value="<?=$quesOption_value?>" <?= in_array((string)$quesOption_value, array_map('strval', (array)$cbChecked)) ? 'checked' : '' ?>><i></i><?=$question->{$quesOption_key}?></label>
 										</div>
 						          <?php } } } elseif ($question->type == 3) { ?>
 								       <div class="radio-custom radio-success mt-md">
-								           <input type="radio" value="1" name="answer[<?=$question->question_id?>][<?=$question->type?>]" id="tf1<?=$key?>">
+								           <input type="radio" value="1" name="answer[<?=$question->question_id?>][<?=$question->type?>]" id="tf1<?=$key?>" <?= ($question->sb_ans === '1') ? 'checked' : '' ?>>
 								           <label for="tf1<?=$key?>">TRUE</label>
 								       </div>
 								       <div class="radio-custom radio-success mt-md">
-								           <input type="radio" value="0" name="answer[<?=$question->question_id?>][<?=$question->type?>]" id="tf0<?=$key?>">
+								           <input type="radio" value="0" name="answer[<?=$question->question_id?>][<?=$question->type?>]" id="tf0<?=$key?>" <?= ($question->sb_ans === '0') ? 'checked' : '' ?>>
 								           <label for="tf0<?=$key?>">FALSE</label>
 								       </div>
 						          <?php } elseif ($question->type == 4) { ?>
 	                            <div class="form-group">
 	                              <label class="control-label">Answer</label>
-	                              <input type="text" class="form-control" rows="4" name="answer[<?=$question->question_id?>][<?=$question->type?>]" ></input>
+	                              <input type="text" class="form-control" rows="4" name="answer[<?=$question->question_id?>][<?=$question->type?>]" value="<?= htmlspecialchars($question->sb_ans ?? '') ?>"></input>
 	                            </div>
 						         <?php } ?>
 						         <?php if ($exam->marks_display == 1 || $exam->neg_mark == 1) { ?>
