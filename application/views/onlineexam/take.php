@@ -98,212 +98,226 @@ if (empty($studentSubmitted)) {
 </div>
 
 <script type="text/javascript">
-	var examDuration = "<?php echo $exam->duration; ?>";
-	var totalQuestions = 0;
-	var currentStep = 1;
-	$(document).on('click', '.start_btn', function() {
-	    var $this = $(this);
-	    var examID = $this.attr("data-examid");
-	    $.ajax({
-	        type: 'POST',
-	        url: base_url + "userrole/ajaxQuestions",
-	        data: { 'exam_id': examID },
-	        dataType: 'JSON',
-	        beforeSend: function() {
-	            $this.button('loading');
-	            clearInterval(interval);
-	        },
-	        success: function(data) {
-		        if (data.status == 1) {
-		        	if ($('#online_questions').length) {
-		        		totalQuestions = parseInt(data.total_questions);
-		            $('#online_questions').html(data.page);
-		            $('#fueluxWizard').on('actionclicked.fu.wizard', function(e, data) {
-		                var steps = 0;
-		                if (data.direction == "next") {
-		                    steps = data.step + 1;
-		                } else {
-		                    steps = data.step - 1;
-		                }
-		                var btn = $('#question' + steps).addClass('active');
-		                $(".que_btn").not(btn).removeClass('active');
+    var examDuration   = "<?php echo $exam->duration; ?>";
+    var totalQuestions = 0;
+    var currentQ       = 1;
+    var flaggedQs      = {};
+    var examID;
 
-		                if (steps == totalQuestions) {
-		                    $('#nextbutton i').remove();
-		                    $('#nextbutton').append(' <i class="fas fa-check"></i>');
-		                    $('#finishedbutton').hide();
-		                } else if (steps == totalQuestions + 1) {
-		                    $('#answerForm').submit();
-		                } else {
-		                    $('#nextbutton i').remove();
-		                    $('#nextbutton').append(' <i class="fa fa-angle-right"></i>');
-		                    $('#finishedbutton').show();
-		                }
-		                currentStep = steps;
-		                makeAnswered(data.step);
-		            });
-		            // Server-side timer: use remaining_seconds computed from started_at
-		            var remSecs = parseInt(data.remaining_seconds) || 0;
-		            if (remSecs <= 0) {
-		                // Time already expired (e.g. reconnect after timeout)
-		                $('#answerForm').submit();
-		                return;
-		            }
-		            var h = Math.floor(remSecs/3600),
-		                m = Math.floor((remSecs % 3600)/60),
-		                s = remSecs % 60;
-		            examDuration = (h<10?'0':'')+h+':'+(m<10?'0':'')+m+':'+(s<10?'0':'')+s;
-		            requestExamFullscreen();
-		            fsViolations = 0;
-		            timer();
-		            // Auto-save: fire on each answer change
-		            $('#answerForm').off('change.autosave').on('change.autosave', 'input[type="radio"], input[type="checkbox"]', function() {
-		                autoSaveAnswer(examID, $(this));
-		            });
-		            $('#answerForm').off('input.autosave').on('input.autosave', 'input[type="text"]', function() {
-		                clearTimeout($(this).data('asTimer'));
-		                var $el = $(this);
-		                $el.data('asTimer', setTimeout(function() { autoSaveAnswer(examID, $el); }, 800));
-		            });
-		            $('#ans_modalBox').modal({
-		                show: true,
-		                backdrop: 'static',
-		                keyboard: false
-		            });
-		        	}
-		        } else {
-		        		alertMsg(data.message, "error", "<?php echo translate('error') ?>", "");
-		        }
-	        },
-	        error: function(xhr) {
-	            alert("Error occured.please try again");
-	            $this.button('reset');
-	        },
-	        complete: function() {
-	            $this.button('reset');
-	        }
-	    });
-	});
+    // ── Navigation ─────────────────────────────────────────────────
+    function navTo(n) {
+        $('#chip' + currentQ).removeClass('current');
+        currentQ = n;
+        $('.cbt-qpane').removeClass('active');
+        $('#qpane' + n).addClass('active');
+        $('#chip' + n).addClass('current');
+        $('#cbt-qnum').text('Question ' + n + ' of ' + totalQuestions);
+        updateNavButtons();
+        updateFlagBtn();
+        $('.cbt-main').scrollTop(0);
+    }
+    function navPrev() { if (currentQ > 1)              navTo(currentQ - 1); }
+    function navNext() { if (currentQ < totalQuestions) navTo(currentQ + 1); }
+    function updateNavButtons() {
+        $('#btnCbtPrev').prop('disabled', currentQ === 1);
+        $('#btnCbtNext').prop('disabled', currentQ === totalQuestions);
+    }
 
-	function changeQuestion(questionID) {
-		makeAnswered(currentStep);
-		currentStep = questionID;
-		makeAnswered(questionID);
+    // ── Flagging ───────────────────────────────────────────────────
+    function toggleFlag() {
+        var qid = $('#qpane' + currentQ).data('qid');
+        if (flaggedQs[qid]) { delete flaggedQs[qid]; } else { flaggedQs[qid] = true; }
+        updateChip(currentQ);
+        updateFlagBtn();
+    }
+    function updateFlagBtn() {
+        var qid = $('#qpane' + currentQ).data('qid');
+        if (flaggedQs[qid]) {
+            $('#btnCbtFlag').addClass('btn-warning').html('<i class="fas fa-flag-checkered"></i> Unflag');
+        } else {
+            $('#btnCbtFlag').removeClass('btn-warning').html('<i class="fas fa-flag"></i> Flag');
+        }
+    }
 
-		$('#fueluxWizard').wizard('selectedItem', {
-			step: questionID
-		});
+    // ── Chip colours ───────────────────────────────────────────────
+    function updateChip(step) {
+        var qid  = $('#qpane' + step).data('qid');
+        var chip = $('#chip' + step);
+        chip.removeClass('answered flagged');
+        if (flaggedQs[qid])        { chip.addClass('flagged');  }
+        else if (isAnswered(step)) { chip.addClass('answered'); }
+    }
+    function isAnswered(step) {
+        var answered = false;
+        var pane = $('#qpane' + step);
+        pane.find('input[type="radio"]:checked, input[type="checkbox"]:checked').each(function() { answered = true; });
+        pane.find('input[type="text"]').each(function() { if ($(this).val().trim()) answered = true; });
+        return answered;
+    }
+    function makeAnswered(step) { updateChip(step); }
 
-		var btn = $('#question' + questionID).addClass('active');
-		$(".que_btn").not(btn).removeClass('active');
+    // ── Submit summary ─────────────────────────────────────────────
+    function showSubmitSummary() {
+        var answered = 0, flagged = 0, unanswered = 0;
+        for (var i = 1; i <= totalQuestions; i++) {
+            var qid = $('#qpane' + i).data('qid');
+            if (flaggedQs[qid])     { flagged++;    }
+            else if (isAnswered(i)) { answered++;   }
+            else                    { unanswered++; }
+        }
+        $('#cbt-summary-answered').text(answered);
+        $('#cbt-summary-unanswered').text(unanswered);
+        $('#cbt-summary-flagged').text(flagged);
+        $('#cbtConfirm').addClass('show');
+    }
 
-		if (questionID == totalQuestions) {
-			$('#nextbutton i').remove();
-			$('#nextbutton').append(' <i class="fas fa-check"></i>');
-			$('#finishedbutton').hide();
-		} else {
-			$('#nextbutton i').remove();
-			$('#nextbutton').append(' <i class="fa fa-angle-right"></i>');
-			$('#finishedbutton').show();
-		}
-	}
+    // ── Auto-save ──────────────────────────────────────────────────
+    function autoSaveAnswer(eID, $input) {
+        var name    = $input.attr('name');
+        var matches = name.match(/answer\[(\d+)\]\[(\d+)\]/);
+        if (!matches) return;
+        var questionID = matches[1];
+        var ansType    = matches[2];
+        var answer;
+        if ($input.attr('type') === 'checkbox') {
+            var checked = [];
+            $('input[name="answer[' + questionID + '][' + ansType + '][]"]:checked').each(function() {
+                checked.push($(this).val());
+            });
+            answer = JSON.stringify(checked);
+        } else {
+            answer = $input.val();
+        }
+        $.post(base_url + 'userrole/autosave_answer', {
+            exam_id: eID, question_id: questionID, answer_type: ansType, answer: answer
+        }, function(res) {
+            if (res && res.status == 1) {
+                $('#autosave_indicator').text('Saved at ' + res.ts);
+            }
+        }, 'json');
+    }
 
-	function completeExams() {
-	   $('#answerForm').submit();
-	}
+    // ── Start exam ─────────────────────────────────────────────────
+    $(document).on('click', '.start_btn', function() {
+        var $this = $(this);
+        examID    = $this.attr('data-examid');
+        $.ajax({
+            type:     'POST',
+            url:      base_url + 'userrole/ajaxQuestions',
+            data:     { 'exam_id': examID },
+            dataType: 'JSON',
+            beforeSend: function() { $this.button('loading'); clearInterval(interval); },
+            success: function(data) {
+                if (data.status == 1) {
+                    if ($('#online_questions').length) {
+                        totalQuestions = parseInt(data.total_questions);
+                        $('#online_questions').html(data.page);
 
-	function autoSaveAnswer(examID, $input) {
-	    var name = $input.attr('name');
-	    var matches = name.match(/answer\[(\d+)\]\[(\d+)\]/);
-	    if (!matches) return;
-	    var questionID = matches[1];
-	    var ansType    = matches[2];
-	    var answer;
-	    if ($input.attr('type') === 'checkbox') {
-	        var checked = [];
-	        $('input[name="answer[' + questionID + '][' + ansType + '][]"]:checked').each(function() {
-	            checked.push($(this).val());
-	        });
-	        answer = JSON.stringify(checked);
-	    } else {
-	        answer = $input.val();
-	    }
-	    $.post(base_url + 'userrole/autosave_answer', {
-	        exam_id: examID, question_id: questionID, answer_type: ansType, answer: answer
-	    }, function(res) {
-	        if (res && res.status == 1) {
-	            $('#autosave_indicator').text('Saved at ' + res.ts);
-	        }
-	    }, 'json');
-	}
+                        var remSecs = parseInt(data.remaining_seconds) || 0;
+                        if (remSecs <= 0) { $('#answerForm').submit(); return; }
+                        var h = Math.floor(remSecs / 3600),
+                            m = Math.floor((remSecs % 3600) / 60),
+                            s = remSecs % 60;
+                        examDuration = (h<10?'0':'')+h+':'+(m<10?'0':'')+m+':'+(s<10?'0':'')+s;
 
-	// ============================================================
-	// Anti-cheat & fullscreen lockdown (CBT Stage 1, Items 1 & 2)
-	// ============================================================
-	var fsViolations = 0;
-	var MAX_FS_VIOLATIONS = 3;
+                        currentQ  = 1;
+                        flaggedQs = {};
+                        navTo(1);
 
-	function requestExamFullscreen() {
-	    var el = document.documentElement;
-	    var req = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
-	    if (req) req.call(el).catch(function() {});
-	}
+                        requestExamFullscreen();
+                        fsViolations = 0;
+                        timer();
 
-	function handleFsExit() {
-	    if (!$('#ans_modalBox').hasClass('in')) return;
-	    fsViolations++;
-	    var msg;
-	    if (fsViolations >= MAX_FS_VIOLATIONS) {
-	        msg = 'Maximum violations reached. Your exam is being submitted.';
-	        $('#fs_warning .fs-warning-text').text(msg);
-	        $('#fs_warning button').hide();
-	        $('#fs_warning').show();
-	        setTimeout(function() { $('#answerForm').submit(); }, 2000);
-	    } else {
-	        var rem = MAX_FS_VIOLATIONS - fsViolations;
-	        msg = 'Warning ' + fsViolations + ' of ' + MAX_FS_VIOLATIONS + ': You exited fullscreen. ' +
-	              rem + ' violation(s) remaining before auto-submit.';
-	        $('#fs_warning .fs-warning-text').text(msg);
-	        $('#fs_warning button').show();
-	        $('#fs_warning').show();
-	    }
-	}
+                        $('#answerForm').off('change.autosave').on('change.autosave', 'input[type="radio"], input[type="checkbox"]', function() {
+                            autoSaveAnswer(examID, $(this));
+                            updateChip(currentQ);
+                        });
+                        $('#answerForm').off('input.autosave').on('input.autosave', 'input[type="text"]', function() {
+                            clearTimeout($(this).data('asTimer'));
+                            var $el = $(this);
+                            $el.data('asTimer', setTimeout(function() {
+                                autoSaveAnswer(examID, $el);
+                                updateChip(currentQ);
+                            }, 800));
+                        });
 
-	$(document).on('fullscreenchange webkitfullscreenchange mozfullscreenchange msfullscreenchange', function() {
-	    if (!document.fullscreenElement && !document.webkitFullscreenElement && !document.mozFullScreenElement) {
-	        handleFsExit();
-	    } else {
-	        $('#fs_warning').hide();
-	    }
-	});
+                        $('#ans_modalBox').modal({ show: true, backdrop: 'static', keyboard: false });
+                    }
+                } else {
+                    alertMsg(data.message, 'error', '<?php echo translate("error") ?>', '');
+                }
+            },
+            error:    function() { alert('Error occurred. Please try again.'); $this.button('reset'); },
+            complete: function() { $this.button('reset'); }
+        });
+    });
 
-	// Tab-switch detection
-	document.addEventListener('visibilitychange', function() {
-	    if (document.hidden && $('#ans_modalBox').hasClass('in')) {
-	        $('#autosave_indicator').css('color', 'red').text('Warning: tab switch detected!');
-	        setTimeout(function() { $('#autosave_indicator').css('color', ''); }, 4000);
-	    }
-	});
+    // ── Anti-cheat & fullscreen lockdown ───────────────────────────
+    var fsViolations      = 0;
+    var MAX_FS_VIOLATIONS = 3;
 
-	// Disable right-click inside exam
-	document.addEventListener('contextmenu', function(e) {
-	    if ($('#ans_modalBox').hasClass('in')) e.preventDefault();
-	});
+    function requestExamFullscreen() {
+        var el  = document.documentElement;
+        var req = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
+        if (req) req.call(el).catch(function() {});
+    }
 
-	// Block copy, cut, select-all and DevTools shortcuts inside exam
-	document.addEventListener('keydown', function(e) {
-	    if (!$('#ans_modalBox').hasClass('in')) return;
-	    var k = e.key ? e.key.toLowerCase() : '';
-	    if ((e.ctrlKey || e.metaKey) && ['c', 'x', 'a'].includes(k)) e.preventDefault();
-	    if (k === 'f12') e.preventDefault();
-	    if ((e.ctrlKey || e.metaKey) && e.shiftKey && k === 'i') e.preventDefault();
-	});
+    function handleFsExit() {
+        if (!$('#ans_modalBox').hasClass('in')) return;
+        fsViolations++;
+        var msg;
+        if (fsViolations >= MAX_FS_VIOLATIONS) {
+            msg = 'Maximum violations reached. Your exam is being submitted.';
+            $('#fs_warning .fs-warning-text').text(msg);
+            $('#fs_warning button').hide();
+            $('#fs_warning').show();
+            setTimeout(function() { $('#answerForm').submit(); }, 2000);
+        } else {
+            var rem = MAX_FS_VIOLATIONS - fsViolations;
+            msg = 'Warning ' + fsViolations + ' of ' + MAX_FS_VIOLATIONS + ': You exited fullscreen. ' +
+                  rem + ' violation(s) remaining before auto-submit.';
+            $('#fs_warning .fs-warning-text').text(msg);
+            $('#fs_warning button').show();
+            $('#fs_warning').show();
+        }
+    }
 
-	// remain duration update
-	var interval;
-	var timer = function() {
-		interval = setInterval(function() {
-			$('.remain_duration').text(durationUpdate());
-		}, 1000);
-	};
+    $(document).on('fullscreenchange webkitfullscreenchange mozfullscreenchange msfullscreenchange', function() {
+        if (!document.fullscreenElement && !document.webkitFullscreenElement && !document.mozFullScreenElement) {
+            handleFsExit();
+        } else {
+            $('#fs_warning').hide();
+        }
+    });
+
+    document.addEventListener('visibilitychange', function() {
+        if (document.hidden && $('#ans_modalBox').hasClass('in')) {
+            $('#autosave_indicator').css('color', 'red').text('Warning: tab switch detected!');
+            setTimeout(function() { $('#autosave_indicator').css('color', ''); }, 4000);
+        }
+    });
+
+    document.addEventListener('contextmenu', function(e) {
+        if ($('#ans_modalBox').hasClass('in')) e.preventDefault();
+    });
+
+    document.addEventListener('keydown', function(e) {
+        if (!$('#ans_modalBox').hasClass('in')) return;
+        var k = e.key ? e.key.toLowerCase() : '';
+        if ((e.ctrlKey || e.metaKey) && ['c', 'x', 'a'].includes(k)) e.preventDefault();
+        if (k === 'f12') e.preventDefault();
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && k === 'i') e.preventDefault();
+    });
+
+    // ── Timer ──────────────────────────────────────────────────────
+    var interval;
+    var timer = function() {
+        interval = setInterval(function() {
+            var disp  = durationUpdate();
+            $('.remain_duration').text(disp);
+            var parts = disp.split(':');
+            var secs  = (+parts[0]) * 3600 + (+parts[1]) * 60 + (+parts[2]);
+            if (secs <= 300) { $('.cbt-timer').addClass('cbt-timer-danger'); }
+        }, 1000);
+    };
 </script>
