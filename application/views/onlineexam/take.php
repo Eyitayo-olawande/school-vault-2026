@@ -74,6 +74,12 @@ if (empty($studentSubmitted)) {
 } ?>
 	</div>
 </section>
+<!-- Fullscreen violation warning (CBT anti-cheat) -->
+<div id="fs_warning" style="display:none;position:fixed;top:0;left:0;width:100%;z-index:10000;background:#d9534f;color:#fff;padding:12px 20px;font-size:14px;text-align:center;">
+    <strong><i class="fas fa-triangle-exclamation"></i> Exam Violation:</strong>
+    <span class="fs-warning-text"></span>
+    <button class="btn btn-sm btn-light" style="margin-left:12px;" onclick="requestExamFullscreen();$('#fs_warning').hide();">Return to Fullscreen</button>
+</div>
 <div class="questionmodal">
       <div id="ans_modalBox" class="modal fade" role="dialog">
          <div class="modal-dialog modal-dialogfullwidth">
@@ -147,6 +153,8 @@ if (empty($studentSubmitted)) {
 		                m = Math.floor((remSecs % 3600)/60),
 		                s = remSecs % 60;
 		            examDuration = (h<10?'0':'')+h+':'+(m<10?'0':'')+m+':'+(s<10?'0':'')+s;
+		            requestExamFullscreen();
+		            fsViolations = 0;
 		            timer();
 		            // Auto-save: fire on each answer change
 		            $('#answerForm').off('change.autosave').on('change.autosave', 'input[type="radio"], input[type="checkbox"]', function() {
@@ -228,6 +236,68 @@ if (empty($studentSubmitted)) {
 	        }
 	    }, 'json');
 	}
+
+	// ============================================================
+	// Anti-cheat & fullscreen lockdown (CBT Stage 1, Items 1 & 2)
+	// ============================================================
+	var fsViolations = 0;
+	var MAX_FS_VIOLATIONS = 3;
+
+	function requestExamFullscreen() {
+	    var el = document.documentElement;
+	    var req = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
+	    if (req) req.call(el).catch(function() {});
+	}
+
+	function handleFsExit() {
+	    if (!$('#ans_modalBox').hasClass('in')) return;
+	    fsViolations++;
+	    var msg;
+	    if (fsViolations >= MAX_FS_VIOLATIONS) {
+	        msg = 'Maximum violations reached. Your exam is being submitted.';
+	        $('#fs_warning .fs-warning-text').text(msg);
+	        $('#fs_warning button').hide();
+	        $('#fs_warning').show();
+	        setTimeout(function() { $('#answerForm').submit(); }, 2000);
+	    } else {
+	        var rem = MAX_FS_VIOLATIONS - fsViolations;
+	        msg = 'Warning ' + fsViolations + ' of ' + MAX_FS_VIOLATIONS + ': You exited fullscreen. ' +
+	              rem + ' violation(s) remaining before auto-submit.';
+	        $('#fs_warning .fs-warning-text').text(msg);
+	        $('#fs_warning button').show();
+	        $('#fs_warning').show();
+	    }
+	}
+
+	$(document).on('fullscreenchange webkitfullscreenchange mozfullscreenchange msfullscreenchange', function() {
+	    if (!document.fullscreenElement && !document.webkitFullscreenElement && !document.mozFullScreenElement) {
+	        handleFsExit();
+	    } else {
+	        $('#fs_warning').hide();
+	    }
+	});
+
+	// Tab-switch detection
+	document.addEventListener('visibilitychange', function() {
+	    if (document.hidden && $('#ans_modalBox').hasClass('in')) {
+	        $('#autosave_indicator').css('color', 'red').text('Warning: tab switch detected!');
+	        setTimeout(function() { $('#autosave_indicator').css('color', ''); }, 4000);
+	    }
+	});
+
+	// Disable right-click inside exam
+	document.addEventListener('contextmenu', function(e) {
+	    if ($('#ans_modalBox').hasClass('in')) e.preventDefault();
+	});
+
+	// Block copy, cut, select-all and DevTools shortcuts inside exam
+	document.addEventListener('keydown', function(e) {
+	    if (!$('#ans_modalBox').hasClass('in')) return;
+	    var k = e.key ? e.key.toLowerCase() : '';
+	    if ((e.ctrlKey || e.metaKey) && ['c', 'x', 'a'].includes(k)) e.preventDefault();
+	    if (k === 'f12') e.preventDefault();
+	    if ((e.ctrlKey || e.metaKey) && e.shiftKey && k === 'i') e.preventDefault();
+	});
 
 	// remain duration update
 	var interval;
