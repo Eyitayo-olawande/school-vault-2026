@@ -123,6 +123,49 @@
 		</section>
 
 		<section class="panel">
+			<header class="panel-heading">
+				<h4 class="panel-title"><i class="fas fa-shuffle"></i> Quick Random Assign by Difficulty</h4>
+			</header>
+			<div class="panel-body">
+				<div class="row">
+					<div class="col-md-2 mb-sm">
+						<div class="form-group mb-none">
+							<label class="control-label">Easy <small class="text-muted">(Level 1)</small></label>
+							<input type="number" id="easyCount" class="form-control" min="0" value="0">
+						</div>
+					</div>
+					<div class="col-md-2 mb-sm">
+						<div class="form-group mb-none">
+							<label class="control-label">Medium <small class="text-muted">(Level 2)</small></label>
+							<input type="number" id="mediumCount" class="form-control" min="0" value="0">
+						</div>
+					</div>
+					<div class="col-md-2 mb-sm">
+						<div class="form-group mb-none">
+							<label class="control-label">Hard <small class="text-muted">(Level 3)</small></label>
+							<input type="number" id="hardCount" class="form-control" min="0" value="0">
+						</div>
+					</div>
+					<div class="col-md-2 mb-sm">
+						<div class="form-group mb-none">
+							<label class="control-label">&nbsp;</label>
+							<button id="btnRandomAssign" class="btn btn-default btn-block" data-loading-text="<i class='fas fa-spinner fa-spin'></i> Assigning...">
+								<i class="fas fa-shuffle"></i> Auto-assign
+							</button>
+						</div>
+					</div>
+					<div class="col-md-4 mb-sm">
+						<div class="form-group mb-none">
+							<label class="control-label">&nbsp;</label>
+							<div id="randomAssignResult" class="text-muted" style="padding-top:7px;"></div>
+						</div>
+					</div>
+				</div>
+				<p class="text-muted mb-none mt-sm"><small><i class="fas fa-circle-info"></i> Picks randomly from the filtered pool above. Uses each question's saved mark. Skips questions already assigned to this exam.</small></p>
+			</div>
+		</section>
+
+		<section class="panel">
 			<?php echo form_open('onlineexam/question_assign', array('class' => 'frm-submit-msg'));?>
 			<header class="panel-heading">
 				<h4 class="panel-title"><?=translate('select_ground')?></h4>
@@ -202,6 +245,39 @@
 
         $('#btnFilter').on('click', function() {
             cusDataTable.draw();
+        });
+
+        $('#btnRandomAssign').on('click', function() {
+            var easy   = parseInt($('#easyCount').val())   || 0;
+            var medium = parseInt($('#mediumCount').val()) || 0;
+            var hard   = parseInt($('#hardCount').val())   || 0;
+            if (easy + medium + hard === 0) {
+                $('#randomAssignResult').html('<span class="text-warning">Enter at least one count.</span>');
+                return;
+            }
+            var $btn = $(this);
+            $btn.button('loading');
+            $('#randomAssignResult').text('');
+            $.post(base_url + 'onlineexam/randomAssignQuestions', {
+                exam_id:       examID,
+                branch_id:     branchID,
+                easy_count:    easy,
+                medium_count:  medium,
+                hard_count:    hard,
+                questionGroup: $('#questionGroup').val(),
+                classID:       $('#class_id').val(),
+                sectionID:     $('#section_id').val(),
+                subjectID:     $('#subject_id').val(),
+                term:          $('#questionTerm').val(),
+                ca_type:       $('#questionCaType').val(),
+            }, function(res) {
+                if (res && res.status === 'success') {
+                    $('#randomAssignResult').html('<span class="text-success"><i class="fas fa-check"></i> ' + res.message + '</span>');
+                    cusDataTable.draw();
+                } else {
+                    $('#randomAssignResult').html('<span class="text-danger">Failed. Please try again.</span>');
+                }
+            }, 'json').always(function() { $btn.button('reset'); });
         });
     });
 </script>

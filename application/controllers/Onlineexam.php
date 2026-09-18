@@ -411,6 +411,94 @@ class Onlineexam extends Admin_Controller
         }
     }
 
+    public function randomAssignQuestions()
+    {
+        if (!get_permission('add_questions', 'is_add')) {
+            ajax_access_denied();
+        }
+        if (!$_POST) { echo json_encode(['status' => 'fail']); return; }
+
+        $examID   = (int)$this->input->post('exam_id');
+        $branchID = (int)$this->input->post('branch_id');
+        $counts   = [
+            1 => max(0, (int)$this->input->post('easy_count')),
+            2 => max(0, (int)$this->input->post('medium_count')),
+            3 => max(0, (int)$this->input->post('hard_count')),
+        ];
+        $filters = [
+            'group_id'   => $this->input->post('questionGroup'),
+            'class_id'   => $this->input->post('classID'),
+            'section_id' => $this->input->post('sectionID'),
+            'subject_id' => $this->input->post('subjectID'),
+            'term'       => $this->input->post('term'),
+            'ca_type'    => $this->input->post('ca_type'),
+        ];
+
+        // IDs already assigned to this exam — skip them
+        $assignedRows = $this->db->select('question_id')->where('onlineexam_id', $examID)
+                                 ->get('questions_manage')->result_array();
+        $assignedIDs  = array_column($assignedRows, 'question_id');
+
+        $insertData    = [];
+        $totalAssigned = 0;
+
+        foreach ($counts as $level => $count) {
+            if ($count <= 0) continue;
+
+            $this->db->select('questions.id, questions.mark')
+                     ->from('questions')
+                     ->where('questions.branch_id', $branchID)
+                     ->where('questions.level', $level);
+
+            foreach (['group_id', 'class_id', 'section_id', 'subject_id'] as $f) {
+                if (!empty($filters[$f])) {
+                    $this->db->where("questions.$f", $filters[$f]);
+                }
+            }
+            if (!empty($filters['term']))    { $this->db->where('questions.term',    $filters['term']); }
+            if (!empty($filters['ca_type'])) { $this->db->where('questions.ca_type', $filters['ca_type']); }
+
+            $rows = $this->db->get('questions')->result_array();
+            // Remove already-assigned questions
+            $available = [];
+            foreach ($rows as $r) {
+                if (!in_array($r['id'], $assignedIDs)) {
+                    $available[] = $r;
+                }
+            }
+            if (empty($available)) continue;
+
+            if ($count >= count($available)) {
+                $sample = $available;
+            } else {
+                $keys   = (array)array_rand($available, $count);
+                $sample = [];
+                foreach ($keys as $k) { $sample[] = $available[$k]; }
+            }
+
+            foreach ($sample as $q) {
+                $insertData[] = [
+                    'question_id'   => $q['id'],
+                    'onlineexam_id' => $examID,
+                    'marks'         => ($q['mark'] > 0 ? $q['mark'] : 1),
+                    'neg_marks'     => 0,
+                ];
+                $assignedIDs[] = $q['id']; // prevent cross-level duplicates
+            }
+            $totalAssigned += count($sample);
+        }
+
+        if (!empty($insertData)) {
+            $this->db->insert_batch('questions_manage', $insertData);
+        }
+
+        echo json_encode([
+            'status'   => 'success',
+            'assigned' => $totalAssigned,
+            'message'  => $totalAssigned . ' question(s) randomly assigned.',
+        ]);
+    }
+
     public function question_assign()
     {
         if (!get_permission('add_questions', 'is_add')) {
