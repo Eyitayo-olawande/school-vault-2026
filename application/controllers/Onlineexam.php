@@ -1105,4 +1105,183 @@ class Onlineexam extends Admin_Controller
             return true;
         }
     }
+
+    public function questionDocxImport()
+    {
+        if (!$_POST) return;
+        if (!get_permission('question_bank', 'is_add')) { ajax_access_denied(); }
+
+        $branchID  = $this->application_model->get_branch_id();
+        $classID   = (int)$this->input->post('class_id');
+        $sectionID = (int)$this->input->post('section_id');
+        $subjectID = (int)$this->input->post('subject_id');
+
+        if (!$classID || !$sectionID || !$subjectID) {
+            echo json_encode(['status' => 'fail', 'error' => ['docxfile' => 'Class, Section and Subject are required.']]);
+            return;
+        }
+
+        if (empty($_FILES['docxfile']['name']) || $_FILES['docxfile']['error'] !== UPLOAD_ERR_OK) {
+            echo json_encode(['status' => 'fail', 'error' => ['docxfile' => 'Please upload a valid .docx file.']]);
+            return;
+        }
+
+        $ext = strtolower(pathinfo($_FILES['docxfile']['name'], PATHINFO_EXTENSION));
+        if ($ext !== 'docx') {
+            echo json_encode(['status' => 'fail', 'error' => ['docxfile' => 'Only .docx files are accepted.']]);
+            return;
+        }
+
+        $zip = new ZipArchive();
+        if ($zip->open($_FILES['docxfile']['tmp_name']) !== true) {
+            echo json_encode(['status' => 'fail', 'error' => ['docxfile' => 'Could not open file. Make sure it is a valid .docx file.']]);
+            return;
+        }
+        $xmlContent = $zip->getFromName('word/document.xml');
+        $zip->close();
+
+        if ($xmlContent === false) {
+            echo json_encode(['status' => 'fail', 'error' => ['docxfile' => 'Could not read document content.']]);
+            return;
+        }
+
+        $paragraphs = $this->_parseDocxParagraphs($xmlContent);
+
+        // Split into question blocks by '---'
+        $blocks = [];
+        $current = [];
+        foreach ($paragraphs as $line) {
+            $trimmed = trim($line);
+            if ($trimmed === '---' || $trimmed === "\xe2\x80\x94" /* em-dash */ || $trimmed === '') {
+                if (!empty($current)) { $blocks[] = $current; $current = []; }
+            } else {
+                $current[] = $trimmed;
+            }
+        }
+        if (!empty($current)) $blocks[] = $current;
+
+        if (empty($blocks)) {
+            echo json_encode(['status' => 'fail', 'error' => ['docxfile' => 'No questions found. Check the document format.']]);
+            return;
+        }
+
+        $optMap    = ['A' => 1, 'B' => 2, 'C' => 3, 'D' => 4];
+        $optMapStr = ['A' => '1', 'B' => '2', 'C' => '3', 'D' => '4'];
+        $typeMap   = [
+            'single_choice' => 1, 'singlechoice' => 1,
+            'multi_choice'  => 2, 'multichoice'  => 2,
+            'true_false'    => 3, 'truefalse'    => 3, 'tf' => 3,
+            'descriptive'   => 4,
+        ];
+        $levelMap  = ['easy' => 1, 'medium' => 2, 'hard' => 3];
+        $validTerms  = ['1ST', '2ND', '3RD'];
+        $validCaTypes = ['CA1', 'CA2', 'EXAM', 'GENERAL'];
+
+        $insertData = [];
+        $errors     = [];
+
+        foreach ($blocks as $idx => $block) {
+            $qNum = $idx + 1;
+            $f    = [];
+            foreach ($block as $line) {
+                if (preg_match('/^(TYPE|LEVEL|MARKS|TERM|CA_TYPE|GROUP|Q|A|B|C|D|ANS)\s*:\s*(.+)$/i', $line, $m)) {
+                    $f[strtoupper(trim($m[1]))] = trim($m[2]);
+                }
+            }
+
+            if (empty($f['TYPE'])) { $errors[] = "Q{$qNum}: missing TYPE"; continue; }
+            if (empty($f['Q']))    { $errors[] = "Q{$qNum}: missing Q";    continue; }
+            if (empty($f['ANS']))  { $errors[] = "Q{$qNum}: missing ANS";  continue; }
+
+            $typeKeyFull = str_replace([' ', '-'], ['', ''], strtolower($f['TYPE']));
+            if (!isset($typeMap[$typeKeyFull])) { $errors[] = "Q{$qNum}: unknown TYPE '{$f['TYPE']}'"; continue; }
+            $type = $typeMap[$typeKeyFull];
+
+            $level = $levelMap[strtolower(trim($f['LEVEL'] ?? 'easy'))] ?? 1;
+
+            $ansRaw = strtoupper(trim($f['ANS']));
+            $answer = '';
+            if ($type === 1) {
+                if (!isset($optMap[$ansRaw])) { $errors[] = "Q{$qNum}: ANS must be A/B/C/D"; continue; }
+                $answer = $optMap[$ansRaw];
+            } elseif ($type === 2) {
+                $letters = array_map('trim', explode(',', $ansRaw));
+                $nums    = [];
+                $valid   = true;
+                foreach ($letters as $l) {
+                    if (!isset($optMapStr[$l])) { $errors[] = "Q{$qNum}: invalid ANS letter '$l'"; $valid = false; break; }
+                    $nums[] = $optMapStr[$l];
+                }
+                if (!$valid) continue;
+                $answer = json_encode($nums);
+            } elseif ($type === 3) {
+                if ($ansRaw === 'TRUE')       $answer = 1;
+                elseif ($ansRaw === 'FALSE')  $answer = 2;
+                else { $errors[] = "Q{$qNum}: ANS must be TRUE or FALSE"; continue; }
+            } elseif ($type === 4) {
+                $answer = $f['ANS'];
+            }
+
+            $term   = null;
+            if (!empty($f['TERM']) && in_array(strtoupper(trim($f['TERM'])), $validTerms)) {
+                $term = strtoupper(trim($f['TERM']));
+            }
+            $caType = 'GENERAL';
+            if (!empty($f['CA_TYPE']) && in_array(strtoupper(trim($f['CA_TYPE'])), $validCaTypes)) {
+                $caType = strtoupper(trim($f['CA_TYPE']));
+            }
+
+            $insertData[] = [
+                'class_id'   => $classID,
+                'section_id' => $sectionID,
+                'subject_id' => $subjectID,
+                'branch_id'  => $branchID,
+                'type'       => $type,
+                'level'      => $level,
+                'group_id'   => !empty($f['GROUP']) ? (int)$f['GROUP'] : 0,
+                'question'   => $f['Q'],
+                'mark'       => !empty($f['MARKS']) ? (float)$f['MARKS'] : 1,
+                'opt_1'      => $f['A'] ?? '',
+                'opt_2'      => $f['B'] ?? '',
+                'opt_3'      => $f['C'] ?? '',
+                'opt_4'      => $f['D'] ?? '',
+                'answer'     => $answer,
+                'term'       => $term,
+                'ca_type'    => $caType,
+            ];
+        }
+
+        $imported = count($insertData);
+        if (!empty($insertData)) {
+            $this->db->insert_batch('questions', $insertData);
+        }
+
+        if ($imported === 0) {
+            $msg = 'No questions imported.' . (!empty($errors) ? ' ' . implode('; ', $errors) : '');
+            echo json_encode(['status' => 'fail', 'error' => ['docxfile' => $msg]]);
+            return;
+        }
+
+        $msg = $imported . ' question(s) imported from DOCX.';
+        if (!empty($errors)) $msg .= ' Skipped ' . count($errors) . ': ' . implode('; ', $errors);
+        set_alert('success', $msg);
+        echo json_encode(['status' => 'success', 'url' => base_url('onlineexam/question')]);
+    }
+
+    private function _parseDocxParagraphs($xmlContent)
+    {
+        libxml_use_internal_errors(true);
+        $dom = new DOMDocument();
+        if (!$dom->loadXML($xmlContent)) { return []; }
+        $ns = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+        $paragraphs = [];
+        foreach ($dom->getElementsByTagNameNS($ns, 'p') as $para) {
+            $text = '';
+            foreach ($para->getElementsByTagNameNS($ns, 't') as $t) {
+                $text .= $t->nodeValue;
+            }
+            $paragraphs[] = $text;
+        }
+        return $paragraphs;
+    }
 }
