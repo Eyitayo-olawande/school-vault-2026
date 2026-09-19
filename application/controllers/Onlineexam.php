@@ -1268,6 +1268,43 @@ class Onlineexam extends Admin_Controller
         echo json_encode(['status' => 'success', 'url' => base_url('onlineexam/question')]);
     }
 
+    public function saveQuestionLog()
+    {
+        if (!$_POST) return;
+        $examID    = (int)$this->input->post('exam_id');
+        $timeJson  = $this->input->post('q_time_spent');
+        $changesJson = $this->input->post('q_ans_changes');
+        if (!$examID) return;
+
+        $studentID = get_loggedin_user_id();
+        $timeSpent  = json_decode($timeJson,  true) ?: [];
+        $ansChanges = json_decode($changesJson, true) ?: [];
+
+        $allQids = array_unique(array_merge(array_keys($timeSpent), array_keys($ansChanges)));
+        if (empty($allQids)) return;
+
+        foreach ($allQids as $qid) {
+            $qid = (int)$qid;
+            if (!$qid) continue;
+            $existing = $this->db->where(['exam_id' => $examID, 'student_id' => $studentID, 'question_id' => $qid])->get('online_exam_question_log')->row_array();
+            if ($existing) {
+                $this->db->where(['exam_id' => $examID, 'student_id' => $studentID, 'question_id' => $qid])
+                         ->update('online_exam_question_log', [
+                             'time_spent'     => ($existing['time_spent'] + (int)($timeSpent[$qid] ?? 0)),
+                             'answer_changes' => ($existing['answer_changes'] + (int)($ansChanges[$qid] ?? 0)),
+                         ]);
+            } else {
+                $this->db->insert('online_exam_question_log', [
+                    'exam_id'        => $examID,
+                    'student_id'     => $studentID,
+                    'question_id'    => $qid,
+                    'time_spent'     => (int)($timeSpent[$qid] ?? 0),
+                    'answer_changes' => (int)($ansChanges[$qid] ?? 0),
+                ]);
+            }
+        }
+    }
+
     private function _parseDocxParagraphs($xmlContent)
     {
         libxml_use_internal_errors(true);

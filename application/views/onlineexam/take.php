@@ -102,12 +102,20 @@ if (empty($studentSubmitted)) {
     var totalQuestions = 0;
     var currentQ       = 1;
     var flaggedQs      = {};
+    var qStartTime     = {};
+    var timeSpentLog   = {};
+    var ansChanges     = {};
     var examID;
 
     // ── Navigation ─────────────────────────────────────────────────
     function navTo(n) {
+        var prevQid = $('#qpane' + currentQ).data('qid');
+        if (prevQid && qStartTime[currentQ]) {
+            timeSpentLog[prevQid] = (timeSpentLog[prevQid] || 0) + Math.round((Date.now() - qStartTime[currentQ]) / 1000);
+        }
         $('#chip' + currentQ).removeClass('current');
         currentQ = n;
+        qStartTime[n] = Date.now();
         $('.cbt-qpane').removeClass('active');
         $('#qpane' + n).addClass('active');
         $('#chip' + n).addClass('current');
@@ -229,6 +237,8 @@ if (empty($studentSubmitted)) {
                         timer();
 
                         $('#answerForm').off('change.autosave').on('change.autosave', 'input[type="radio"], input[type="checkbox"]', function() {
+                            var qid = $('#qpane' + currentQ).data('qid');
+                            if (qid) ansChanges[qid] = (ansChanges[qid] || 0) + 1;
                             autoSaveAnswer(examID, $(this));
                             updateChip(currentQ);
                         });
@@ -236,9 +246,22 @@ if (empty($studentSubmitted)) {
                             clearTimeout($(this).data('asTimer'));
                             var $el = $(this);
                             $el.data('asTimer', setTimeout(function() {
+                                var qid = $('#qpane' + currentQ).data('qid');
+                                if (qid) ansChanges[qid] = (ansChanges[qid] || 0) + 1;
                                 autoSaveAnswer(examID, $el);
                                 updateChip(currentQ);
                             }, 800));
+                        });
+                        $('#answerForm').off('submit.analytics').on('submit.analytics', function() {
+                            var qid = $('#qpane' + currentQ).data('qid');
+                            if (qid && qStartTime[currentQ]) {
+                                timeSpentLog[qid] = (timeSpentLog[qid] || 0) + Math.round((Date.now() - qStartTime[currentQ]) / 1000);
+                            }
+                            $.post(base_url + 'onlineexam/saveQuestionLog', {
+                                exam_id: examID,
+                                q_time_spent: JSON.stringify(timeSpentLog),
+                                q_ans_changes: JSON.stringify(ansChanges)
+                            });
                         });
 
                         $('#ans_modalBox').modal({ show: true, backdrop: 'static', keyboard: false });
