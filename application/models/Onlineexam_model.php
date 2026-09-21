@@ -279,6 +279,36 @@ class Onlineexam_model extends MY_Model
         if (!empty($branchID)) {
             $questionsExam['branch_id'] = $branchID;
         }
+
+        // Handle image upload
+        $currentImage = $this->input->post('question_image_current') ?: null;
+        if (!empty($_FILES['question_image']['name'])) {
+            if (!is_dir(FCPATH . 'uploads/exam_media')) {
+                mkdir(FCPATH . 'uploads/exam_media', 0755, true);
+            }
+            $this->load->library('upload');
+            $imgConfig = [
+                'upload_path'   => FCPATH . 'uploads/exam_media/',
+                'allowed_types' => 'jpg|jpeg|png|gif|webp',
+                'max_size'      => 2048,
+                'file_name'     => uniqid('qimg_'),
+            ];
+            $this->upload->initialize($imgConfig);
+            if ($this->upload->do_upload('question_image')) {
+                // Delete old image on replacement
+                if (!empty($currentImage) && file_exists(FCPATH . $currentImage)) {
+                    @unlink(FCPATH . $currentImage);
+                }
+                $currentImage = 'uploads/exam_media/' . $this->upload->data('file_name');
+            }
+        } elseif ($this->input->post('remove_image') == '1') {
+            if (!empty($currentImage) && file_exists(FCPATH . $currentImage)) {
+                @unlink(FCPATH . $currentImage);
+            }
+            $currentImage = null;
+        }
+        $questionsExam['image'] = $currentImage;
+
         if (empty($questionID)) {
             $questionsExam['created_by'] = get_loggedin_user_id();
             $this->db->insert('questions', $questionsExam);

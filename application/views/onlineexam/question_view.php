@@ -3,7 +3,8 @@
 		<tbody>
 			<tr>
 				<th><?=translate('question')?></th>
-				<td colspan="3"><?php echo $questions['question'] ?></td>
+				<td colspan="3"><?php echo $questions['question'] ?>
+					<?php if (!empty($questions['image'])): ?><br><img src="<?=base_url($questions['image'])?>" style="max-height:120px;border-radius:3px;margin-top:6px"><?php endif; ?></td>
 	
 			</tr>
 			<tr>

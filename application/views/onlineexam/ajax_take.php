@@ -84,6 +84,9 @@
 			<div class="cbt-qpane <?=$k==0?'active':''?>" id="qpane<?=$k+1?>"
 			     data-qid="<?=$question->question_id?>" data-step="<?=$k+1?>">
 				<div class="cbt-qheader">Question <?=$k+1?> of <?=$totalQuestions?></div>
+				<?php if (!empty($question->image)): ?>
+				<div class="mb-sm"><img src="<?=base_url($question->image)?>" alt="Question image" style="max-width:100%;max-height:320px;border-radius:4px;display:block"></div>
+				<?php endif; ?>
 				<div class="cbt-qtext"><?=$question->question?></div>
 
 				<?php if ($question->type == 1) {

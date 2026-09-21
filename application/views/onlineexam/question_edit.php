@@ -184,6 +184,20 @@
 							</div>
 
 							<div class="form-group">
+								<label class="col-md-3 control-label">Question Image</label>
+								<div class="col-md-6">
+									<?php if (!empty($questions['image'])): ?>
+									<div class="mb-sm">
+									    <img src="<?=base_url($questions['image'])?>" alt="Current image" style="max-height:80px;border:1px solid #ddd;border-radius:3px;display:block;margin-bottom:6px">
+									    <label style="font-weight:400"><input type="checkbox" name="remove_image" value="1"> Remove image</label>
+									</div>
+									<input type="hidden" name="question_image_current" value="<?=htmlspecialchars($questions['image'])?>">
+									<?php endif; ?>
+									<input type="file" name="question_image" accept="image/jpeg,image/png,image/gif,image/webp">
+									<p class="text-muted" style="font-size:11px;margin-top:4px">Optional. JPG/PNG/GIF/WEBP, max 2MB.</p>
+								</div>
+							</div>
+							<div class="form-group">
 								<label class="col-md-3 control-label"><?=translate('option')?> 1 <span class="required">*</span></label>
 								<div class="col-md-6">
 									<textarea name="option1" class="question_note"><?php echo $questions['opt_1'] ?></textarea>
@@ -310,6 +324,20 @@
 								</div>
 							</div>
 							<div class="form-group">
+								<label class="col-md-3 control-label">Question Image</label>
+								<div class="col-md-6">
+									<?php if (!empty($questions['image'])): ?>
+									<div class="mb-sm">
+									    <img src="<?=base_url($questions['image'])?>" alt="Current image" style="max-height:80px;border:1px solid #ddd;border-radius:3px;display:block;margin-bottom:6px">
+									    <label style="font-weight:400"><input type="checkbox" name="remove_image" value="1"> Remove image</label>
+									</div>
+									<input type="hidden" name="question_image_current" value="<?=htmlspecialchars($questions['image'])?>">
+									<?php endif; ?>
+									<input type="file" name="question_image" accept="image/jpeg,image/png,image/gif,image/webp">
+									<p class="text-muted" style="font-size:11px;margin-top:4px">Optional. JPG/PNG/GIF/WEBP, max 2MB.</p>
+								</div>
+							</div>
+							<div class="form-group">
 								<label class="col-md-3 control-label"><?=translate('option')?> 1 <span class="required">*</span></label>
 								<div class="col-md-6">
 									<textarea name="option1" class="question_note"><?php echo $questions['opt_1'] ?></textarea>
@@ -430,6 +458,20 @@
 								</div>
 							</div>
 							<div class="form-group">
+								<label class="col-md-3 control-label">Question Image</label>
+								<div class="col-md-6">
+									<?php if (!empty($questions['image'])): ?>
+									<div class="mb-sm">
+									    <img src="<?=base_url($questions['image'])?>" alt="Current image" style="max-height:80px;border:1px solid #ddd;border-radius:3px;display:block;margin-bottom:6px">
+									    <label style="font-weight:400"><input type="checkbox" name="remove_image" value="1"> Remove image</label>
+									</div>
+									<input type="hidden" name="question_image_current" value="<?=htmlspecialchars($questions['image'])?>">
+									<?php endif; ?>
+									<input type="file" name="question_image" accept="image/jpeg,image/png,image/gif,image/webp">
+									<p class="text-muted" style="font-size:11px;margin-top:4px">Optional. JPG/PNG/GIF/WEBP, max 2MB.</p>
+								</div>
+							</div>
+							<div class="form-group">
 							   <label class="col-md-3 control-label"><?=translate('answer')?> <span class="required">*</span></label>
 							   <div class="col-md-6 mb-lg">
 									<?php
@@ -522,6 +564,20 @@
 								<div class="col-md-6">
 									<textarea name="question" class="question_note"><?php echo $questions['question'] ?></textarea>
 									<span class="error"></span>
+								</div>
+							</div>
+							<div class="form-group">
+								<label class="col-md-3 control-label">Question Image</label>
+								<div class="col-md-6">
+									<?php if (!empty($questions['image'])): ?>
+									<div class="mb-sm">
+									    <img src="<?=base_url($questions['image'])?>" alt="Current image" style="max-height:80px;border:1px solid #ddd;border-radius:3px;display:block;margin-bottom:6px">
+									    <label style="font-weight:400"><input type="checkbox" name="remove_image" value="1"> Remove image</label>
+									</div>
+									<input type="hidden" name="question_image_current" value="<?=htmlspecialchars($questions['image'])?>">
+									<?php endif; ?>
+									<input type="file" name="question_image" accept="image/jpeg,image/png,image/gif,image/webp">
+									<p class="text-muted" style="font-size:11px;margin-top:4px">Optional. JPG/PNG/GIF/WEBP, max 2MB.</p>
 								</div>
 							</div>
 							<div class="form-group">

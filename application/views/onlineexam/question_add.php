@@ -178,6 +178,13 @@
 							</div>
 
 							<div class="form-group">
+								<label class="col-md-3 control-label">Question Image</label>
+								<div class="col-md-6">
+									<input type="file" name="question_image" accept="image/jpeg,image/png,image/gif,image/webp">
+									<p class="text-muted" style="font-size:11px;margin-top:4px">Optional. JPG/PNG/GIF/WEBP, max 2MB.</p>
+								</div>
+							</div>
+							<div class="form-group">
 								<label class="col-md-3 control-label"><?=translate('option')?> 1 <span class="required">*</span></label>
 								<div class="col-md-6">
 									<textarea name="option1" class="question_note"></textarea>
@@ -295,6 +302,13 @@
 								<div class="col-md-6">
 									<textarea name="question" class="question_note"></textarea>
 									<span class="error"></span>
+								</div>
+							</div>
+							<div class="form-group">
+								<label class="col-md-3 control-label">Question Image</label>
+								<div class="col-md-6">
+									<input type="file" name="question_image" accept="image/jpeg,image/png,image/gif,image/webp">
+									<p class="text-muted" style="font-size:11px;margin-top:4px">Optional. JPG/PNG/GIF/WEBP, max 2MB.</p>
 								</div>
 							</div>
 							<div class="form-group">
@@ -417,6 +431,13 @@
 								</div>
 							</div>
 							<div class="form-group">
+								<label class="col-md-3 control-label">Question Image</label>
+								<div class="col-md-6">
+									<input type="file" name="question_image" accept="image/jpeg,image/png,image/gif,image/webp">
+									<p class="text-muted" style="font-size:11px;margin-top:4px">Optional. JPG/PNG/GIF/WEBP, max 2MB.</p>
+								</div>
+							</div>
+							<div class="form-group">
 							   <label class="col-md-3 control-label"><?=translate('answer')?> <span class="required">*</span></label>
 							   <div class="col-md-6 mb-lg">
 									<?php
@@ -499,6 +520,13 @@
 								<div class="col-md-6">
 									<textarea name="question" class="question_note"></textarea>
 									<span class="error"></span>
+								</div>
+							</div>
+							<div class="form-group">
+								<label class="col-md-3 control-label">Question Image</label>
+								<div class="col-md-6">
+									<input type="file" name="question_image" accept="image/jpeg,image/png,image/gif,image/webp">
+									<p class="text-muted" style="font-size:11px;margin-top:4px">Optional. JPG/PNG/GIF/WEBP, max 2MB.</p>
 								</div>
 							</div>
 							<div class="form-group">

@@ -377,10 +377,14 @@ class Onlineexam extends Admin_Controller
             if (!is_superadmin_loggedin()) {
                 $this->db->where('branch_id', get_loggedin_branch_id());
             }
+            $q = $this->db->select('image')->where('id', $id)->get('questions')->row();
             $this->db->where('id', $id);
             $this->db->delete('questions');
             if ($this->db->affected_rows() > 0) {
                 $this->db->where('question_id', $id)->delete('questions_manage');
+                if (!empty($q->image) && file_exists(FCPATH . $q->image)) {
+                    @unlink(FCPATH . $q->image);
+                }
             }
         }
     }
