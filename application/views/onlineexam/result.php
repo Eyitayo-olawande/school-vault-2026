@@ -58,6 +58,11 @@
 		<section class="panel appear-animation" data-appear-animation="<?=$global_config['animations'] ?>" data-appear-animation-delay="100">
 			<header class="panel-heading">
 				<h4 class="panel-title"><i class="fas fa-users-viewfinder"></i> <?php echo translate('student_list');?></h4>
+				<div class="panel-btn">
+					<a href="<?=base_url('onlineexam/liveMonitor/' . $exam->id)?>" class="btn btn-success btn-circle btn-sm" target="_blank">
+						<i class="fas fa-satellite-dish"></i> Live Monitor
+					</a>
+				</div>
 			</header>
 			<div class="panel-body mb-md">
 				<table class="table table-bordered table-condensed table-hover table-export">

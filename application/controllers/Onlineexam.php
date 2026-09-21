@@ -1268,6 +1268,70 @@ class Onlineexam extends Admin_Controller
         echo json_encode(['status' => 'success', 'url' => base_url('onlineexam/question')]);
     }
 
+    public function liveMonitor($examID = '')
+    {
+        if (!get_permission('online_exam', 'is_view')) { access_denied(); }
+        $exam = $this->onlineexam_model->getExamDetails((int)$examID, false);
+        if (empty($exam)) { access_denied(); }
+        $this->data['exam']      = $exam;
+        $this->data['examID']    = (int)$examID;
+        $this->data['title']     = 'Live Exam Monitor';
+        $this->data['sub_page']  = 'onlineexam/live_monitor';
+        $this->data['main_menu'] = 'onlineexam';
+        $this->load->view('layout/index', $this->data);
+    }
+
+    public function liveMonitorData($examID = '')
+    {
+        if (!get_permission('online_exam', 'is_view')) { echo json_encode([]); return; }
+        $examID = (int)$examID;
+        $exam = $this->db->where('id', $examID)->get('online_exam')->row_array();
+        if (empty($exam)) { echo json_encode([]); return; }
+
+        // Total questions in this exam
+        $totalQ = $this->db->where('onlineexam_id', $examID)->count_all_results('questions_manage');
+
+        // Students who have been enrolled / started (have answers or submitted)
+        $submitted = $this->db->select('student_id, created_at')->where('online_exam_id', $examID)->get('online_exam_submitted')->result_array();
+        $submittedMap = [];
+        foreach ($submitted as $s) { $submittedMap[$s['student_id']] = $s['created_at']; }
+
+        // Answer counts per student
+        $answers = $this->db->select('student_id, COUNT(*) as cnt')
+            ->where('online_exam_id', $examID)
+            ->where('answer !=', '')
+            ->group_by('student_id')
+            ->get('online_exam_answer')->result_array();
+        $answerMap = [];
+        foreach ($answers as $a) { $answerMap[$a['student_id']] = (int)$a['cnt']; }
+
+        // All relevant student IDs
+        $studentIDs = array_unique(array_merge(array_keys($submittedMap), array_keys($answerMap)));
+        if (empty($studentIDs)) { echo json_encode(['total_questions' => $totalQ, 'exam_end' => $exam['exam_end'], 'students' => []]); return; }
+
+        $students = $this->db->select('id, first_name, last_name')->where_in('id', $studentIDs)->get('student')->result_array();
+
+        // Calculate exam end time from start + duration (HH:MM:SS)
+        $examEnd = $exam['exam_end'];
+
+        $rows = [];
+        foreach ($students as $st) {
+            $sid = $st['id'];
+            $rows[] = [
+                'student_id'      => $sid,
+                'name'            => trim($st['first_name'] . ' ' . $st['last_name']),
+                'answered'        => $answerMap[$sid] ?? 0,
+                'total_questions' => $totalQ,
+                'submitted'       => isset($submittedMap[$sid]),
+                'submitted_at'    => $submittedMap[$sid] ?? null,
+            ];
+        }
+        // Sort: active first, then submitted
+        usort($rows, function($a, $b) { return $a['submitted'] <=> $b['submitted']; });
+
+        echo json_encode(['total_questions' => $totalQ, 'exam_end' => $examEnd, 'students' => $rows]);
+    }
+
     public function saveQuestionLog()
     {
         if (!$_POST) return;
