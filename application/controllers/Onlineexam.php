@@ -1268,6 +1268,135 @@ class Onlineexam extends Admin_Controller
         echo json_encode(['status' => 'success', 'url' => base_url('onlineexam/question')]);
     }
 
+    public function cohortReport($examID = '')
+    {
+        if (!get_permission('online_exam', 'is_view')) { access_denied(); }
+        $examID = (int)$examID;
+        $exam = $this->onlineexam_model->getExamDetails($examID, false);
+        if (empty($exam)) { access_denied(); }
+
+        // All submitted students
+        $submitted = $this->db->select('student_id, created_at')
+            ->where('online_exam_id', $examID)->get('online_exam_submitted')->result_array();
+        $studentIDs = array_column($submitted, 'student_id');
+
+        // Student names
+        $studentsRaw = empty($studentIDs) ? [] :
+            $this->db->select('id, first_name, last_name, register_no')
+                ->where_in('id', $studentIDs)->get('student')->result_array();
+        $studentMap = [];
+        foreach ($studentsRaw as $s) { $studentMap[$s['id']] = $s; }
+
+        // Per-student scores using existing examResult()
+        $ranking = [];
+        $totalMarks = 0;
+        $passCount  = 0;
+        foreach ($studentIDs as $sid) {
+            $res = $this->onlineexam_model->examResult($examID, $sid);
+            $obtained = (float)$res['total_obtain_marks'] - (float)$res['total_neg_marks'];
+            $total    = (float)$res['total_marks'];
+            $pct      = $total > 0 ? round($obtained / $total * 100, 1) : 0;
+            // Pass check
+            $passed = false;
+            if ($exam->mark_type == 1) { $passed = $pct >= $exam->passing_mark; }
+            else                        { $passed = $obtained >= $exam->passing_mark; }
+            if ($passed) $passCount++;
+            $totalMarks += $pct;
+            $ranking[] = [
+                'student_id'  => $sid,
+                'name'        => isset($studentMap[$sid]) ? trim($studentMap[$sid]['first_name'] . ' ' . $studentMap[$sid]['last_name']) : 'Unknown',
+                'register_no' => $studentMap[$sid]['register_no'] ?? '',
+                'obtained'    => $obtained,
+                'total'       => $total,
+                'pct'         => $pct,
+                'passed'      => $passed,
+            ];
+        }
+        usort($ranking, fn($a,$b) => $b['pct'] <=> $a['pct']);
+        $rank = 1; foreach ($ranking as &$r) { $r['rank'] = $rank++; }
+        unset($r);
+
+        $total = count($studentIDs);
+        $avgScore = $total > 0 ? round($totalMarks / $total, 1) : 0;
+        $highScore = $total > 0 ? max(array_column($ranking, 'pct')) : 0;
+        $lowScore  = $total > 0 ? min(array_column($ranking, 'pct')) : 0;
+
+        // Score distribution bands
+        $bands = ['0-20' => 0, '21-40' => 0, '41-60' => 0, '61-80' => 0, '81-100' => 0];
+        foreach ($ranking as $r) {
+            $p = $r['pct'];
+            if ($p <= 20)      $bands['0-20']++;
+            elseif ($p <= 40)  $bands['21-40']++;
+            elseif ($p <= 60)  $bands['41-60']++;
+            elseif ($p <= 80)  $bands['61-80']++;
+            else               $bands['81-100']++;
+        }
+
+        // Per-question stats
+        $qList = $this->db->select('qm.question_id, q.question, q.type, q.answer, q.marks')
+            ->from('questions_manage qm')
+            ->join('questions q', 'q.id = qm.question_id', 'left')
+            ->where('qm.onlineexam_id', $examID)
+            ->order_by('qm.id', 'ASC')
+            ->get()->result_array();
+
+        $allAnswers = empty($studentIDs) ? [] :
+            $this->db->select('question_id, student_id, answer')
+                ->where('online_exam_id', $examID)
+                ->where_in('student_id', $studentIDs)
+                ->get('online_exam_answer')->result_array();
+        $answerIndex = [];
+        foreach ($allAnswers as $a) { $answerIndex[$a['question_id']][$a['student_id']] = $a['answer']; }
+
+        // Avg time from question log
+        $timeLogs = $this->db->select('question_id, AVG(time_spent) as avg_time')
+            ->where('exam_id', $examID)
+            ->group_by('question_id')
+            ->get('online_exam_question_log')->result_array();
+        $timeMap = [];
+        foreach ($timeLogs as $tl) { $timeMap[$tl['question_id']] = round($tl['avg_time']); }
+
+        $qStats = [];
+        foreach ($qList as $q) {
+            $qid = $q['question_id'];
+            $correctCount = 0; $answeredCount = 0;
+            foreach ($studentIDs as $sid) {
+                $sbAns = $answerIndex[$qid][$sid] ?? null;
+                if ($sbAns === null || $sbAns === '') continue;
+                $answeredCount++;
+                if ($q['type'] == 1 || $q['type'] == 3) {
+                    if ($sbAns == $q['answer']) $correctCount++;
+                } elseif ($q['type'] == 2) {
+                    $ca = json_decode($q['answer'], true); $sa = json_decode($sbAns, true);
+                    if (is_array($ca) && is_array($sa) && !array_diff($ca,$sa) && !array_diff($sa,$ca)) $correctCount++;
+                } elseif ($q['type'] == 4) {
+                    if (strtolower(str_replace(' ','_',$sbAns)) == strtolower(str_replace(' ','_',$q['answer']))) $correctCount++;
+                }
+            }
+            $diffPct = $answeredCount > 0 ? round($correctCount / $answeredCount * 100) : null;
+            $qStats[] = [
+                'question_id'   => $qid,
+                'question'      => $q['question'],
+                'type'          => $q['type'],
+                'marks'         => $q['marks'],
+                'answered'      => $answeredCount,
+                'correct'       => $correctCount,
+                'diff_pct'      => $diffPct,
+                'avg_time_secs' => $timeMap[$qid] ?? null,
+            ];
+        }
+
+        $this->data['exam']      = $exam;
+        $this->data['ranking']   = $ranking;
+        $this->data['qStats']    = $qStats;
+        $this->data['bands']     = $bands;
+        $this->data['summary']   = compact('total', 'passCount', 'avgScore', 'highScore', 'lowScore');
+        $this->data['title']     = 'Cohort Performance Report';
+        $this->data['sub_page']  = 'onlineexam/cohort_report';
+        $this->data['main_menu'] = 'onlineexam';
+        $this->load->view('layout/index', $this->data);
+    }
+
     public function liveMonitor($examID = '')
     {
         if (!get_permission('online_exam', 'is_view')) { access_denied(); }

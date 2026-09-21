@@ -62,6 +62,9 @@
 					<a href="<?=base_url('onlineexam/liveMonitor/' . $exam->id)?>" class="btn btn-success btn-circle btn-sm" target="_blank">
 						<i class="fas fa-satellite-dish"></i> Live Monitor
 					</a>
+					<a href="<?=base_url('onlineexam/cohortReport/' . $exam->id)?>" class="btn btn-info btn-circle btn-sm" target="_blank">
+						<i class="fas fa-chart-column"></i> Cohort Report
+					</a>
 				</div>
 			</header>
 			<div class="panel-body mb-md">
